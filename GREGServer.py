@@ -3,24 +3,75 @@
 import time
 import zmq
 import chess
+import signal
+import sys
+import json
+import socket
 
-context = zmq.Context()
-socket = context.socket(zmq.REP)
-socket.bind("tcp://*:5555")
+# Globals
+NSERVER = "catalog.cse.nd.edu"
+NPORT   = 9097
 
-while True:
-    #  Wait for next request from client
-    message = socket.recv()
-    print(f"{message}")
+# Classes 
+class ChessServer:
+    def __init__(self, CPort=5555, WPort=5556):
+        self.CPort = CPort
+        self.WPort = WPort
+        self.connect()
+        signal.setitimer(signal.ITIMER_REAL, 1, 60)
+        signal.signal(signal.SIGALRM, self.update_nameserver)
 
-    b = message.decode("utf-8")
-    board = chess.Board(fen=b)
-    print(board)
-    #  Do some 'work'
-    while True:
-        move = input("Make your move (uci): \n")
-        if chess.Move.from_uci(move) in board.legal_moves:
+    def connect(self):
+        # Client Socket
+        self.context = zmq.Context()
+        self.client = self.context.socket(zmq.ROUTER)
+        self.client.bind(f"tcp://*:{self.CPort}")
+
+        # Worker Socket 
+        self.worker = self.context.socket(zmq.DEALER)
+        self.worker.bind(f"tcp://*:{self.WPort}")
+
+        zmq.device(zmq.QUEUE, self.client, self.worker)
+
+    def run(self):
+        while True:
+            #  Wait for next request from client
+            move = self.client.recv()
+          
+            print(move)
+
+            # wait for worker to ask for data
+            message = self.worker.recv()
+
+            print(message)
+
+            # ask worker to find move
+            self.worker.send(move)
+
+            # get move back
+            move = self.worker.recv()
+
+            print(move)
+
+            #  Send reply back to client
+            self.client.send(move)
+
+    def update_nameserver(self, signum, frame):
+        addrs = socket.getaddrinfo(NSERVER, NPORT, socket.AF_UNSPEC, socket.SOCK_DGRAM)
+        for addr in addrs:
+            ai_fam, stype, proto, name, sa = addr
+            s = socket.socket(ai_fam, stype, proto)
+
+            s.sendto(json.dumps({"type":"chessClient","owner":"MMBW","port":self.CPort,"project":"GREGChessApp"}).encode(), sa)
+            s.sendto(json.dumps({"type":"chessWorker","owner":"MMBW","port":self.WPort,"project":"GREGChessApp"}).encode(), sa)
+            s.close()
             break
-        
-    #  Send reply back to client
-    socket.send(bytes(move,"utf-8"))
+
+
+# Main
+def main():
+    server = ChessServer()
+    server.run()
+
+if __name__ == "__main__":
+    main()
