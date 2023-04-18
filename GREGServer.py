@@ -14,12 +14,12 @@ NPORT   = 9097
 
 # Classes 
 class ChessServer:
-    def __init__(self, CPort=5555, WPort=5556):
+    def __init__(self, CPort=5000, WPort=5550):
         self.CPort = CPort
         self.WPort = WPort
-        self.connect()
         signal.setitimer(signal.ITIMER_REAL, 1, 60)
         signal.signal(signal.SIGALRM, self.update_nameserver)
+        self.connect()
 
     def connect(self):
         # Client Socket
@@ -35,6 +35,9 @@ class ChessServer:
 
     def run(self):
         while True:
+
+            print("wtf")
+
             #  Wait for next request from client
             move = self.client.recv()
           
@@ -62,8 +65,8 @@ class ChessServer:
             ai_fam, stype, proto, name, sa = addr
             s = socket.socket(ai_fam, stype, proto)
 
-            s.sendto(json.dumps({"type":"chessClient","owner":"MMBW","port":self.CPort,"project":"GREGChessApp"}).encode(), sa)
-            s.sendto(json.dumps({"type":"chessWorker","owner":"MMBW","port":self.WPort,"project":"GREGChessApp"}).encode(), sa)
+            s.sendto(json.dumps({"type":"chessClientBrett","owner":"MMBW","port":self.CPort,"project":"GREGChessApp"}).encode(), sa)
+            s.sendto(json.dumps({"type":"chessWorkerBrett","owner":"MMBW","port":self.WPort,"project":"GREGChessApp"}).encode(), sa)
             s.close()
             break
 
