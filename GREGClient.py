@@ -15,7 +15,10 @@ NSERVER = "catalog.cse.nd.edu:9097"
 class ChessClient:
     def __init__(self):
         self.board = chess.Board()
-        self.find_server()
+        self.host = '127.0.0.1'
+        self.port = 5556
+        self.connect()
+        #self.find_server()
 
     def find_server(self):
         while True:
@@ -27,13 +30,19 @@ class ChessClient:
                     print(item)
                     self.port = item["port"]
                     self.host = item["name"]
-                    self.connect()
+                    #self.connect()
+                    try:
+                        self.connect()
+                        #self.socket.send_string(".", flags=zmq.NOBLOCK)
+                    except zmq.ZMQError as exc:
+                        print(exc)
                     return
 
     def connect(self):
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REQ)
         self.socket.connect(f"tcp://{self.host}:{self.port}")
+        print("yay connected!!")
 
     def play_game(self):
         while(True):
