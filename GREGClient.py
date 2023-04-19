@@ -16,7 +16,7 @@ class ChessClient:
     def __init__(self):
         self.board = chess.Board()
         self.host = '127.0.0.1'
-        self.port = 5556
+        self.port = 5557
         self.connect()
         #self.find_server()
 
@@ -40,7 +40,7 @@ class ChessClient:
 
     def connect(self):
         self.context = zmq.Context()
-        self.socket = self.context.socket(zmq.REQ)
+        self.socket = self.context.socket(zmq.DEALER)
         self.socket.connect(f"tcp://{self.host}:{self.port}")
         print("yay connected!!")
 
@@ -70,8 +70,12 @@ class ChessClient:
             # get next move from server
             b = self.board.fen()
             self.socket.send(bytes(b, "utf-8"))
+            #self.socket.send_multipart([b"client1", bytes(b, "utf-8")])
+            print("ya sent a message")
 
-            move = self.socket.recv().decode("utf-8")
+            id_, move = self.socket.recv_multipart()
+
+            move = move.decode()
             move = chess.Move.from_uci(move)
             self.board.push(move)
 

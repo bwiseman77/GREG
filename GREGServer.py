@@ -19,92 +19,98 @@ NPORT   = 9097
 
 # Classes 
 class ChessServer:
-    def __init__(self, Port=5555, CPort=5556, WPort=5557):
-        self.Port = Port
-        self.CPort = CPort
-        self.WPort = WPort
+    def __init__(self, w_port=5556, c_port=5557):
+        self.w_port = w_port
+        self.c_port = c_port
 
-        proxy_proc = Thread(target=self.proxy)
-        proxy_proc.start()
-
-        time.sleep(1)
-        self.connect_client()
+        self.context = zmq.Context()
+        self.router = self.context.socket(zmq.ROUTER)
+        self.client = self.context.socket(zmq.ROUTER)
+        
+        self.router.bind(f"tcp://*:{self.w_port}")
+        self.client.bind(f"tcp://*:{self.c_port}")
 
         # set up name server pinging
         #signal.setitimer(signal.ITIMER_REAL, 1, 60)
         #signal.signal(signal.SIGALRM, self.update_nameserver)
 
-    def connect_client(self):
-        self.context = zmq.Context()
-        
-        # Client Socket 
-        self.client = self.context.socket(zmq.REP)
-        self.client.bind(f"tcp://*:{self.CPort}")
-
-        # connection to proxy
-        self.proxy_socket = self.context.socket(zmq.ROUTER)
-
-        self.proxy_socket.connect("tcp://127.0.0.1:5559")#f"inproc://please")
-
-
-
-    def proxy(self):
-        # Router Socket (to get messages from main server process)
-        context = zmq.Context()
-        server = context.socket(zmq.ROUTER)
-        server.bind("tcp://127.0.0.1:5559")#f"inproc://please")
-
-
-        print("maybe? lets recv")
-        message = server.recv()
-        print("yes i finally got a message!", message)
-
-        # Worker Socket 
-        worker = context.socket(zmq.DEALER)
-        worker.bind(f"tcp://*:{self.WPort}")
-        #self.worker.send_string("hello")
-
-        try:
-            print("proxy starting")
-            zmq.proxy(server, worker)
-        except KeyboardInterrupt:
-            return
-
-
     def run(self):
-
-
+        # register sockets for the clients and the workers
         poller = zmq.Poller()
+        poller.register(self.router, zmq.POLLIN)
         poller.register(self.client, zmq.POLLIN)
-        poller.register(self.proxy_socket, zmq.POLLIN)
+    
+        # store the worker ids and availabilities
+        workers = {}
 
-        socket = self.proxy_socket
-        client = self.client
-   
+        # temp variables for testing communication
+        best_score = 0
+        best = ''
+        num_moves = 0
+        num_received = 0
+
+        # queue to contain the tasks for the workers
+        queue = []
 
         while True:
+            # get lists of readable sockets
             socks = dict(poller.poll())
-            if socket in socks and socks[socket] == zmq.POLLIN:
-                message = socket.recv(zmq.DONTWAIT)
-                print("message is ", message)
 
-                
-                
-            if client in socks and socks[client] == zmq.POLLIN:
-                message = client.recv(zmq.DONTWAIT)
-                print("client sent ", message)
-                print("socks:", socks)
+            # if WORKER has a message!
+            if self.router in socks and socks[self.router] == zmq.POLLIN:
+                w_id, c_id, message = self.router.recv_multipart()
 
-                print("proxy socket", self.proxy_socket)
-                self.proxy_socket.send(message)
-                #socket.send_string("hellooooo")
-                print("sent message!")
+                # worker ready
+                if message == b"ready":
+                    workers[w_id] = True
+                    #print("ya worker ready")
+
+                # worker returned result    
+                else:
+                    workers[w_id] = False
+                    score, board = message.decode().split(",")
+                    num_received += 1
+
+
+                    # this should be separated for each client (so use dictionary too)
+                    score = int(score)
+                    if score > best_score:
+                        print(score)
+                        best = board
+                        best_score = score
+    
+                    # need to count this but for all clients (so maybe dictionary)                
+                    if num_received == num_moves:
+                        self.client.send_multipart([c_id, c_id, best.encode()])
+                        
+
+            # if CLIENT has a message!
+            if self.client in socks and socks[self.client] == zmq.POLLIN:
+                c_id, message = self.client.recv_multipart()
+                
+                # split up possible moves and add to task queue
+                b = message.decode()
+                board = chess.Board(fen=b)
+                legal_moves = board.legal_moves
+                num_moves = legal_moves.count()
+
+                for move in board.pseudo_legal_moves:
+                    if move in board.legal_moves:
+                        queue.append((c_id, board, move))
+
+
+            print("queue: ", queue)
             
-
-        proxy_proc.terminate()
-
-
-
+            # send tasks to workers
+            if len(queue) > 0:
+                for worker, available in workers.items():
+                    if available:
+                        client_id, board, message = queue.pop()
+                        self.router.send_multipart([bytes(worker), bytes(client_id), board.fen().encode(), str(message).encode()])
+                        
+                        # worker no longer available until 'ready' again
+                        workers[worker] = False
+                    
 
     def update_nameserver(self, signum, frame):
         addrs = socket.getaddrinfo(NSERVER, NPORT, socket.AF_UNSPEC, socket.SOCK_DGRAM)

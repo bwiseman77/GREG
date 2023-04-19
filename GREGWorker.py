@@ -15,7 +15,7 @@ NSERVER = "catalog.cse.nd.edu:9097"
 
 class ChessWorker:
     def __init__(self):
-        self.port = 5557
+        self.port = 5556
         self.host = '127.0.0.1'
         #self.find_server()
         self.connect()
@@ -39,35 +39,41 @@ class ChessWorker:
                         print("exc", exc)
                 
     def connect(self):
-        print("connect")
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.DEALER)
+        
         self.socket.connect(f"tcp://{self.host}:{self.port}")
         print("connected ", self.socket)
-
+        
     def find_move(self):
         while True:
-            print('waiting for move')
-            message = self.socket.recv()
-            print(f"received message: {message}")
-            self.socket.send(message)
 
-            b = message.decode("utf-8")
+            # tell server 'im ready!'
+            self.socket.send_multipart([b"", b"ready"])
+            c_id, board, message = self.socket.recv_multipart()
+            
+            # print board after making move
+            move = message.decode("utf-8")
+            b = board.decode()
             board = chess.Board(fen=b)
+            board.push(chess.Move.from_uci(move))
             print(board)
 
-            #while True:
-            #    move = input("Make your move (uci): \n")
-            #    if chess.Move.from_uci(move) in board.legal_moves:
-            #        break
+            # checking legal moves and just sending a score, move, back
             max_score = 0
-            for move in board.legal_moves:
+            legal_move = None
+            for move in board.pseudo_legal_moves:
+                if move not in board.legal_moves:
+                    continue
+                legal_move = move
                 print(move)
                 pass
 
+            score = 5 # random number for testing
 
-            
-            self.socket.send(bytes(move, "utf-8"))
+            # sending the work back to server
+            message = str(score) + "," + str(legal_move)
+            self.socket.send_multipart([c_id, message.encode("utf-8")])
 
 def main():
     worker = ChessWorker()
