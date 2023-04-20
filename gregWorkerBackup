@@ -15,15 +15,43 @@ Engine  = None
 
 # Functions
 
-# literally most of this is scrap work, i keep confusing myself cuz im so dumb
-# main probs are that i think we cant send class stuff through concurrent features, so we need them to be global functions
-# how ever this leads to prob of needing to open engine multiple times, but we wanna limit that so only open once per process
-# rn, i have two functions, one that loops through current moves and returns the "best move", which is a tuple of move and score, and then another that scores the board. Then there is second function that scors the move. This also does the recusive checks but kinda jank cuz it also calls the first function cuz it needs to loop through all moves but in these calls we only car about score since we are checking the move from the top level call. 
+def f(i):
+    return i*2
+
+def find(info):
+    print(info)
+    engine = chess.engine.SimpleEngine.popen_uci("./stockfish")
+    board, depth, curr_move = chess.Board(fen=info[0]), info[1], chess.Move.from_uci(info[2])
+    best_move = (None, float('-inf'))
+    turn = board.turn
+    board.push(curr_move)
+    print(type(Engine))
+    print("in process")
+    if depth == 0:
+        score = engine.analyse(board, chess.engine.Limit(depth=0))["score"].pov(turn)
+        engine.quit()
+        return (curr_move.uci(), score.score()) 
+    elif depth == 1:
+        for move in board.pseudo_legal_moves:
+            if move not in board.legal_moves:
+                continue
+
+            board.push(move)
+            score = engine.analyse(board, chess.engine.Limit(depth=0))["score"].pov(turn)
+            
+            if best_move[1] < score.score():
+                best_move = (move.uci(), score.score())
+            board.pop()
+        engine.quit()
+        return best_move
+
+    return (0,0)
+
 def solve(listOfMoves, board, depth):
     bestMove = (None, float("-inf"))
     for move in listOfMoves:
         score = score_move(move, board, depth)
-        print(move, score, depth, board.turn)
+        print(move, score)
         if score > bestMove[1]:
             bestMove = (move, score)
 
@@ -34,12 +62,7 @@ def score_move(move, board, depth):
     turn = board.turn
     if depth == 1:
         board.push(chess.Move.from_uci(move))
-        score = engine.analyse(board, chess.engine.Limit(depth=0))
-        print(score)
-        score = score["score"].pov(turn)
-        print(score)
-        score = score.score(mate_score=100000)
-        print(board,score)
+        score = engine.analyse(board, chess.engine.Limit(depth=0))["score"].pov(turn).score()
         board.pop()
         engine.quit()
         return score
@@ -48,14 +71,11 @@ def score_move(move, board, depth):
         board.push(chess.Move.from_uci(move))
 
         # push whites best move
-        board.push(chess.Move.from_uci(solve([move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves], board, 1)[0]))
+        board.push(solve([move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves], board, 1))
         
         # for every move in new board, see what is best
-        score = solve([move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves], board, depth-1)[1]
-        board.pop()
-        board.pop()
-        engine.quit()
-        return score
+        return solve([move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves], board, depth-1)[1]
+
 # Classes 
 
 class ChessWorker:
