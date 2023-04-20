@@ -65,31 +65,53 @@ class ChessWorker:
         global Engine
         Engine = self.engine
 
+    
     def find_server(self):
         while True:
             conn = http.client.HTTPConnection(NSERVER)
             conn.request("GET", "/query.json")
             js   = json.loads(conn.getresponse().read())
+
+            self.context = zmq.Context()
+            self.socket = self.context.socket(zmq.DEALER)
+            self.monitor = self.socket.get_monitor_socket()
+
             for item in js:
-                if "type" in item and item["type"] == "chessWorkerBrett":
+                if "type" in item and item["type"] == "chessWorker":
                     print(item)
                     self.port = item["port"]
                     self.host = item["name"]
-                    self.connect()
-                    return
-
-    def connect(self):
-        print("connect")
-        self.context = zmq.Context()
-        self.socket = self.context.socket(zmq.REP)
+                    try:
+                        if self.connect():
+                            return
+                    except zmq.ZMQError as exc:
+                        print("exc", exc)
+                
+    def connect(self):        
         self.socket.connect(f"tcp://{self.host}:{self.port}")
+        while True:
+            try:
+                event = self.monitor.recv_multipart()
+            except zmq.ZMQError as e:
+                print(e)
+                return False
+            event_type = event[0]
+            event_addr = event[1]
+            if int.from_bytes(event_type, byteorder='little') == int(zmq.EVENT_HANDSHAKE_SUCCEEDED):
+                return True
+        return False
+        
                       
     def get_jobs(self):
         while True:
-            message = self.socket.recv()
-            print(f"{message}")
 
-            b = message.decode("utf-8")
+            # tell server 'im ready!'
+            self.socket.send_multipart([b"", b"ready"])
+            c_id, board, message = self.socket.recv_multipart()
+            
+            # print board after making move
+            move = message.decode("utf-8")
+            b = board.decode()
             board = chess.Board(fen=b)
 
             moves = []
@@ -105,8 +127,12 @@ class ChessWorker:
 
             #return
             #move = self.find_move((board.fen(), 3))[0]
-            
-            self.socket.send(bytes(s[0], "utf-8"))
+
+
+            # sending the work back to server
+            message = str(s[1]) + "," + s[0]
+            self.socket.send_multipart([c_id, message.encode("utf-8")])
+
 
 def main():
     worker = ChessWorker()

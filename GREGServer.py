@@ -7,6 +7,11 @@ import signal
 import sys
 import json
 import socket
+from threading import Thread
+
+# from the stack overflow thingy
+import random
+from multiprocessing import Pool, Process
 
 # Globals
 NSERVER = "catalog.cse.nd.edu"
@@ -14,50 +19,98 @@ NPORT   = 9097
 
 # Classes 
 class ChessServer:
-    def __init__(self, CPort=5000, WPort=5550):
-        self.CPort = CPort
-        self.WPort = WPort
+    def __init__(self, w_port=5556, c_port=5558):
+        self.w_port = w_port
+        self.c_port = c_port
+
+        self.context = zmq.Context()
+        self.router = self.context.socket(zmq.ROUTER)
+        self.client = self.context.socket(zmq.ROUTER)
+        
+        self.router.bind(f"tcp://*:{self.w_port}")
+        self.client.bind(f"tcp://*:{self.c_port}")
+
+        # set up name server pinging
         signal.setitimer(signal.ITIMER_REAL, 1, 60)
         signal.signal(signal.SIGALRM, self.update_nameserver)
-        self.connect()
-
-    def connect(self):
-        # Client Socket
-        self.context = zmq.Context()
-        self.client = self.context.socket(zmq.ROUTER)
-        self.client.bind(f"tcp://*:{self.CPort}")
-
-        # Worker Socket 
-        self.worker = self.context.socket(zmq.DEALER)
-        self.worker.bind(f"tcp://*:{self.WPort}")
-
-        zmq.device(zmq.QUEUE, self.client, self.worker)
 
     def run(self):
+        # register sockets for the clients and the workers
+        poller = zmq.Poller()
+        poller.register(self.router, zmq.POLLIN)
+        poller.register(self.client, zmq.POLLIN)
+    
+        # store the worker ids and availabilities
+        workers = {}
+
+        # temp variables for testing communication
+        best_score = 0
+        best = ''
+        num_moves = 0
+        num_received = 0
+
+        # queue to contain the tasks for the workers
+        queue = []
+
         while True:
+            # get lists of readable sockets
+            socks = dict(poller.poll())
 
-            print("wtf")
+            # if WORKER has a message!
+            if self.router in socks and socks[self.router] == zmq.POLLIN:
+                w_id, c_id, message = self.router.recv_multipart()
 
-            #  Wait for next request from client
-            move = self.client.recv()
-          
-            print(move)
+                # worker ready
+                if message == b"ready":
+                    workers[w_id] = True
+                    print("ya worker ready")
 
-            # wait for worker to ask for data
-            message = self.worker.recv()
+                # worker returned result    
+                else:
+                    workers[w_id] = False
+                    score, board = message.decode().split(",")
+                    num_received += 1
 
-            print(message)
 
-            # ask worker to find move
-            self.worker.send(move)
+                    # this should be separated for each client (so use dictionary too)
+                    score = int(score)
+                    if score > best_score:
+                        print(score)
+                        best = board
+                        best_score = score
+    
+                    # need to count this but for all clients (so maybe dictionary)                
+                    if num_received == num_moves:
+                        self.client.send_multipart([c_id, c_id, best.encode()])
+                        
 
-            # get move back
-            move = self.worker.recv()
+            # if CLIENT has a message!
+            if self.client in socks and socks[self.client] == zmq.POLLIN:
+                c_id, message = self.client.recv_multipart()
+                
+                # split up possible moves and add to task queue
+                b = message.decode()
+                board = chess.Board(fen=b)
+                legal_moves = board.legal_moves
+                num_moves = legal_moves.count()
 
-            print(move)
+                for move in board.pseudo_legal_moves:
+                    if move in board.legal_moves:
+                        queue.append((c_id, board, move))
 
-            #  Send reply back to client
-            self.client.send(move)
+
+            print("queue: ", queue)
+            
+            # send tasks to workers
+            if len(queue) > 0:
+                for worker, available in workers.items():
+                    if available:
+                        client_id, board, message = queue.pop()
+                        self.router.send_multipart([bytes(worker), bytes(client_id), board.fen().encode(), str(message).encode()])
+                        
+                        # worker no longer available until 'ready' again
+                        workers[worker] = False
+                    
 
     def update_nameserver(self, signum, frame):
         addrs = socket.getaddrinfo(NSERVER, NPORT, socket.AF_UNSPEC, socket.SOCK_DGRAM)
@@ -65,8 +118,8 @@ class ChessServer:
             ai_fam, stype, proto, name, sa = addr
             s = socket.socket(ai_fam, stype, proto)
 
-            s.sendto(json.dumps({"type":"chessClientBrett","owner":"MMBW","port":self.CPort,"project":"GREGChessApp"}).encode(), sa)
-            s.sendto(json.dumps({"type":"chessWorkerBrett","owner":"MMBW","port":self.WPort,"project":"GREGChessApp"}).encode(), sa)
+            s.sendto(json.dumps({"type":"chessClient","owner":"MMBW","port":self.c_port,"project":"GREGChessApp"}).encode(), sa)
+            s.sendto(json.dumps({"type":"chessWorker","owner":"MMBW","port":self.w_port,"project":"GREGChessApp"}).encode(), sa)
             s.close()
             break
 
