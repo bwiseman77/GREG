@@ -15,36 +15,45 @@ NSERVER = "catalog.cse.nd.edu:9097"
 
 class ChessWorker:
     def __init__(self):
-        self.port = 5556
-        self.host = '127.0.0.1'
-        #self.find_server()
-        self.connect()
+        self.find_server()
 
+    
     def find_server(self):
         while True:
             conn = http.client.HTTPConnection(NSERVER)
             conn.request("GET", "/query.json")
             js   = json.loads(conn.getresponse().read())
+
+            self.context = zmq.Context()
+            self.socket = self.context.socket(zmq.DEALER)
+            self.monitor = self.socket.get_monitor_socket()
+
             for item in js:
                 if "type" in item and item["type"] == "chessWorker":
                     print(item)
                     self.port = item["port"]
                     self.host = item["name"]
                     try:
-                        self.connect()
-                        #self.socket.send_string(".", flags=zmq.NOBLOCK)
-                        #time.sleep(.1)
-
+                        if self.connect():
+                            return
                     except zmq.ZMQError as exc:
                         print("exc", exc)
                 
-    def connect(self):
-        self.context = zmq.Context()
-        self.socket = self.context.socket(zmq.DEALER)
-        
+    def connect(self):        
         self.socket.connect(f"tcp://{self.host}:{self.port}")
-        print("connected ", self.socket)
+        while True:
+            try:
+                event = self.monitor.recv_multipart()
+            except zmq.ZMQError as e:
+                print(e)
+                return False
+            event_type = event[0]
+            event_addr = event[1]
+            if int.from_bytes(event_type, byteorder='little') == int(zmq.EVENT_HANDSHAKE_SUCCEEDED):
+                return True
+        return False
         
+    
     def find_move(self):
         while True:
 

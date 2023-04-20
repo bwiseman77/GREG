@@ -19,7 +19,7 @@ NPORT   = 9097
 
 # Classes 
 class ChessServer:
-    def __init__(self, w_port=5556, c_port=5557):
+    def __init__(self, w_port=5556, c_port=5558):
         self.w_port = w_port
         self.c_port = c_port
 
@@ -31,8 +31,8 @@ class ChessServer:
         self.client.bind(f"tcp://*:{self.c_port}")
 
         # set up name server pinging
-        #signal.setitimer(signal.ITIMER_REAL, 1, 60)
-        #signal.signal(signal.SIGALRM, self.update_nameserver)
+        signal.setitimer(signal.ITIMER_REAL, 1, 60)
+        signal.signal(signal.SIGALRM, self.update_nameserver)
 
     def run(self):
         # register sockets for the clients and the workers
@@ -63,7 +63,7 @@ class ChessServer:
                 # worker ready
                 if message == b"ready":
                     workers[w_id] = True
-                    #print("ya worker ready")
+                    print("ya worker ready")
 
                 # worker returned result    
                 else:
@@ -118,8 +118,8 @@ class ChessServer:
             ai_fam, stype, proto, name, sa = addr
             s = socket.socket(ai_fam, stype, proto)
 
-            s.sendto(json.dumps({"type":"chessClient","owner":"MMBW","port":self.CPort,"project":"GREGChessApp"}).encode(), sa)
-            s.sendto(json.dumps({"type":"chessWorker","owner":"MMBW","port":self.WPort,"project":"GREGChessApp"}).encode(), sa)
+            s.sendto(json.dumps({"type":"chessClient","owner":"MMBW","port":self.c_port,"project":"GREGChessApp"}).encode(), sa)
+            s.sendto(json.dumps({"type":"chessWorker","owner":"MMBW","port":self.w_port,"project":"GREGChessApp"}).encode(), sa)
             s.close()
             break
 

@@ -15,34 +15,50 @@ NSERVER = "catalog.cse.nd.edu:9097"
 class ChessClient:
     def __init__(self):
         self.board = chess.Board()
-        self.host = '127.0.0.1'
-        self.port = 5557
-        self.connect()
-        #self.find_server()
+        self.find_server()
+ 
 
     def find_server(self):
         while True:
             conn = http.client.HTTPConnection(NSERVER)
             conn.request("GET", "/query.json")
             js   = json.loads(conn.getresponse().read())
+            
+            self.context = zmq.Context()
+            self.socket = self.context.socket(zmq.DEALER)
+            self.monitor = self.socket.get_monitor_socket()
+
             for item in js:
                 if "type" in item and item["type"] == "chessClient":
                     print(item)
                     self.port = item["port"]
                     self.host = item["name"]
-                    #self.connect()
+
                     try:
-                        self.connect()
-                        #self.socket.send_string(".", flags=zmq.NOBLOCK)
+                        if self.connect():
+                            return
                     except zmq.ZMQError as exc:
                         print(exc)
-                    return
+                    
 
     def connect(self):
-        self.context = zmq.Context()
-        self.socket = self.context.socket(zmq.DEALER)
         self.socket.connect(f"tcp://{self.host}:{self.port}")
-        print("yay connected!!")
+        while True:
+            try:
+                event = self.monitor.recv_multipart()
+            except zmq.ZMQError as e:
+                print(e)
+                return False
+
+            event_type = event[0]
+            event_addr = event[1]
+            #print(int.from_bytes(event_type, byteorder='little') == int(zmq.EVENT_HANDSHAKE_SUCCEEDED))
+            if int.from_bytes(event_type, byteorder='little') == int(zmq.EVENT_HANDSHAKE_SUCCEEDED):
+                return True
+            print("nope", self.port)
+        return False
+            
+
 
     def play_game(self):
         while(True):
