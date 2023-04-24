@@ -19,29 +19,39 @@ Engine  = None
 # main probs are that i think we cant send class stuff through concurrent features, so we need them to be global functions
 # how ever this leads to prob of needing to open engine multiple times, but we wanna limit that so only open once per process
 # rn, i have two functions, one that loops through current moves and returns the "best move", which is a tuple of move and score, and then another that scores the board. Then there is second function that scors the move. This also does the recusive checks but kinda jank cuz it also calls the first function cuz it needs to loop through all moves but in these calls we only car about score since we are checking the move from the top level call. 
+
 def solve(listOfMoves, board, depth):
+    '''Loop over a list of moves and return tuple (best move, best score)'''
     bestMove = (None, float("-inf"))
     for move in listOfMoves:
         score = score_move(move, board, depth)
-        print(move, score, depth, board.turn)
+        print(board)
         if score > bestMove[1]:
             bestMove = (move, score)
 
     return bestMove
 
 def score_move(move, board, depth):
-    engine = chess.engine.SimpleEngine.popen_uci("./stockfish")
+    '''
+        Scores a board. 
+        Base case is depth == 1, which just returns the score of current board
+        If Depth > 1, then find "best" move for white, and then call solve on this list of moves, returning the score of the best one
+        
+    '''
+    global Engine
+    engine = Engine
+    #engine = chess.engine.SimpleEngine.popen_uci("./stockfish")
     turn = board.turn
     if depth == 1:
         board.push(chess.Move.from_uci(move))
         score = engine.analyse(board, chess.engine.Limit(depth=0))
-        print(score)
+        #print(score)
         score = score["score"].pov(turn)
-        print(score)
+        #print(score)
         score = score.score(mate_score=100000)
-        print(board,score)
+        #print(board,score)
         board.pop()
-        engine.quit()
+        #engine.quit()
         return score
     else:
         # push blacks move
@@ -54,7 +64,7 @@ def score_move(move, board, depth):
         score = solve([move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves], board, depth-1)[1]
         board.pop()
         board.pop()
-        engine.quit()
+        #engine.quit()
         return score
 # Classes 
 
@@ -67,15 +77,20 @@ class ChessWorker:
 
     
     def find_server(self):
+        '''Locate chess service and connect to it'''
         while True:
+
+            # get json data from nameserver
             conn = http.client.HTTPConnection(NSERVER)
             conn.request("GET", "/query.json")
             js   = json.loads(conn.getresponse().read())
 
+            # set up zmq context
             self.context = zmq.Context()
             self.socket = self.context.socket(zmq.DEALER)
             self.monitor = self.socket.get_monitor_socket()
 
+            # look for available server
             for item in js:
                 if "type" in item and item["type"] == "chessWorker":
                     print(item)
@@ -87,8 +102,12 @@ class ChessWorker:
                     except zmq.ZMQError as exc:
                         print("exc", exc)
                 
-    def connect(self):        
+    def connect(self):      
+        '''Connect to a Server using ZMQ'''
+        # set up socket
         self.socket.connect(f"tcp://{self.host}:{self.port}")
+
+        # zmq monitor magic
         while True:
             try:
                 event = self.monitor.recv_multipart()
@@ -97,14 +116,16 @@ class ChessWorker:
                 return False
             event_type = event[0]
             event_addr = event[1]
+
+            # if handshake didnt fail, return true
             if int.from_bytes(event_type, byteorder='little') == int(zmq.EVENT_HANDSHAKE_SUCCEEDED):
                 return True
+
         return False
         
                       
     def get_jobs(self):
         while True:
-
             # tell server 'im ready!'
             self.socket.send_multipart([b"", b"ready"])
             c_id, board, message = self.socket.recv_multipart()
@@ -114,23 +135,11 @@ class ChessWorker:
             b = board.decode()
             board = chess.Board(fen=b)
 
-            moves = []
-            for move in board.pseudo_legal_moves:
-                if move not in board.legal_moves:
-                    continue
-                moves.append(move.uci())
-
-            s = solve(moves, board, 2)
-
-            #for b in self.get_boards(board, 1):
-                #m = self.find_move(b)
-
-            #return
-            #move = self.find_move((board.fen(), 3))[0]
-
+            s = solve([move], board, 2)
 
             # sending the work back to server
             message = str(s[1]) + "," + s[0]
+            print(message)
             self.socket.send_multipart([c_id, message.encode("utf-8")])
 
 

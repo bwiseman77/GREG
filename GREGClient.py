@@ -6,6 +6,7 @@ import http.client
 import json
 import time
 import signal
+import os
 
 # Globals
 
@@ -67,26 +68,39 @@ class ChessClient:
 
     def play_game(self):
         while(True):
+            # print board
             print(self.board.unicode(borders=True,invert_color=True,empty_square=" "))
+            
+            # check for end of game
             if self.board.is_checkmate():
                 print(f"game over! {self.board.outcome().result()}")
                 exit(0)
+
+            # get next move from user
             move = input("Make your move (uci): \n")
+
+            # q to quit game
             if move == "q":
                 print("Ending Game")
                 exit(0)
             
+            # try convert move, if invalid ask again (needs to be 
             try:
                 move = chess.Move.from_uci(move)
             except:
                 print("please make a valid move")
                 continue
 
+            # 
             if move not in self.board.legal_moves:
                 print("please make a valid move")
                 continue
                 
             self.board.push(move)
+
+            # print board for user
+            os.system('clear')
+            print(self.board.unicode(borders=True,invert_color=True,empty_square=" "))
 
             # get next move from server
             b = self.board.fen()
@@ -103,8 +117,11 @@ class ChessClient:
             id_, move = self.socket.recv_multipart()
 
             move = move.decode()
+            print(move)
             move = chess.Move.from_uci(move)
             self.board.push(move)
+            os.system('clear')
+
 
 
 # Main Execution

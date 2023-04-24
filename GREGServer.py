@@ -44,7 +44,7 @@ class ChessServer:
         workers = {}
 
         # temp variables for testing communication
-        best_score = 0
+        best_score = float("-inf")
         best = ''
         num_moves = 0
         num_received = 0
@@ -75,12 +75,13 @@ class ChessServer:
                     # this should be separated for each client (so use dictionary too)
                     score = int(score)
                     if score > best_score:
-                        print(score)
+                        #print(score)
                         best = board
                         best_score = score
     
-                    # need to count this but for all clients (so maybe dictionary)                
+                    # need to count this but for all clients (so maybe dictionary)               
                     if num_received == num_moves:
+                        print(best, best_score)
                         self.client.send_multipart([c_id, c_id, best.encode()])
                         
 
@@ -91,6 +92,9 @@ class ChessServer:
                 # split up possible moves and add to task queue
                 b = message.decode()
                 board = chess.Board(fen=b)
+                # need to change for mulit-client
+                num_received = 0
+                best_score = float('-inf')
                 legal_moves = board.legal_moves
                 num_moves = legal_moves.count()
 
@@ -99,7 +103,7 @@ class ChessServer:
                         queue.append((c_id, board, move))
 
 
-            print("queue: ", queue)
+            #print("queue: ", queue)
             
             # send tasks to workers
             if len(queue) > 0:
