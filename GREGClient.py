@@ -61,7 +61,7 @@ class ChessClient:
             #print(int.from_bytes(event_type, byteorder='little') == int(zmq.EVENT_HANDSHAKE_SUCCEEDED))
             if int.from_bytes(event_type, byteorder='little') == int(zmq.EVENT_HANDSHAKE_SUCCEEDED):
                 return True
-            print("nope", self.port)
+        
         return False
             
 

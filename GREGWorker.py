@@ -11,31 +11,50 @@ import time
 # Globals
 
 NSERVER = "catalog.cse.nd.edu:9097"
-Engine  = None
-
-# Functions
+Engine  = chess.engine.SimpleEngine.popen_uci("./stockfish")
 
 # literally most of this is scrap work, i keep confusing myself cuz im so dumb
 # main probs are that i think we cant send class stuff through concurrent features, so we need them to be global functions
 # how ever this leads to prob of needing to open engine multiple times, but we wanna limit that so only open once per process
 # rn, i have two functions, one that loops through current moves and returns the "best move", which is a tuple of move and score, and then another that scores the board. Then there is second function that scors the move. This also does the recusive checks but kinda jank cuz it also calls the first function cuz it needs to loop through all moves but in these calls we only car about score since we are checking the move from the top level call. 
 
-def solve(listOfMoves, board, depth):
+# Functions
+
+def multi_solve(info):
+    moves, board, depth = info
+    engine = chess.engine.SimpleEngine.popen_uci("./stockfish")
+
+    res = solve(moves, board, depth, engine)
+
+    engine.quit()
+    return res
+
+def solve(listOfMoves, board, depth, engine=None):
     '''Loop over a list of moves and return tuple (best move, best score)'''
     bestMove = (None, float("-inf"))
+
+    topmoves = [] # try new thing
+
     for move in listOfMoves:
+        score = score_move(move, board, 1) #depth instead of 1
+        topmoves.append((score, move))
+        #print(board)
+        if score > bestMove[1]:
+            bestMove = (move, score)
+
+    #print(sorted(topmoves, reverse=True)[:5])
+    for score, move in sorted(topmoves, reverse=True)[:5]:
         score = score_move(move, board, depth)
-        print(board)
         if score > bestMove[1]:
             bestMove = (move, score)
 
     return bestMove
 
-def score_move(move, board, depth):
+def score_move(move, board, depth, engine=None):
     '''
         Scores a board. 
         Base case is depth == 1, which just returns the score of current board
-        If Depth > 1, then find "best" move for white, and then call solve on this list of moves, returning the score of the best one
+        If depth > 1, then find "best" move for white, and then call solve on this list of moves, returning the score of the best one
         
     '''
     global Engine
@@ -44,12 +63,8 @@ def score_move(move, board, depth):
     turn = board.turn
     if depth == 1:
         board.push(chess.Move.from_uci(move))
-        score = engine.analyse(board, chess.engine.Limit(depth=0))
-        #print(score)
-        score = score["score"].pov(turn)
-        #print(score)
-        score = score.score(mate_score=100000)
-        #print(board,score)
+        analyse = engine.analyse(board, chess.engine.Limit(depth=0))
+        score = analyse["score"].pov(turn).score(mate_score=100000)
         board.pop()
         #engine.quit()
         return score
@@ -66,16 +81,17 @@ def score_move(move, board, depth):
         board.pop()
         #engine.quit()
         return score
-# Classes 
 
+# Classes 
 class ChessWorker:
     def __init__(self):
-        self.find_server()
-        self.engine = chess.engine.SimpleEngine.popen_uci("./stockfish")
         global Engine
-        Engine = self.engine
+        self.find_server()
+        self.engine = Engine
 
-    
+    ############################
+    #   Networking Functions   #
+    ############################
     def find_server(self):
         '''Locate chess service and connect to it'''
         while True:
@@ -123,7 +139,13 @@ class ChessWorker:
 
         return False
         
-                      
+    #######################
+    #   Chess Functions   #
+    #######################
+    def spawn(self, moves, board, depth=1):
+        for move in moves:
+            yield ([move], board, depth)
+
     def get_jobs(self):
         while True:
             # tell server 'im ready!'
@@ -135,13 +157,20 @@ class ChessWorker:
             b = board.decode()
             board = chess.Board(fen=b)
 
-            s = solve([move], board, 2)
+
+            # Try multi-core
+            #with concurrent.futures.ProcessPoolExecutor(1) as executor:
+            #    ans = executor.map(multi_solve, self.spawn([move], board, 2))
+
+            #for a in ans:
+            #    print(a)
+
+            s = solve([move], board, 5)
 
             # sending the work back to server
             message = str(s[1]) + "," + s[0]
             print(message)
             self.socket.send_multipart([c_id, message.encode("utf-8")])
-
 
 def main():
     worker = ChessWorker()

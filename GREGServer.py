@@ -33,6 +33,18 @@ class ChessServer:
         # set up name server pinging
         signal.setitimer(signal.ITIMER_REAL, 1, 60)
         signal.signal(signal.SIGALRM, self.update_nameserver)
+    
+    def update_nameserver(self, signum, frame):
+        addrs = socket.getaddrinfo(NSERVER, NPORT, socket.AF_UNSPEC, socket.SOCK_DGRAM)
+        for addr in addrs:
+            ai_fam, stype, proto, name, sa = addr
+            s = socket.socket(ai_fam, stype, proto)
+
+            s.sendto(json.dumps({"type":"chessClient","owner":"MMBW","port":self.c_port,"project":"GREGChessApp"}).encode(), sa)
+            s.sendto(json.dumps({"type":"chessWorker","owner":"MMBW","port":self.w_port,"project":"GREGChessApp"}).encode(), sa)
+            s.close()
+            break
+
 
     def run(self):
         # register sockets for the clients and the workers
@@ -115,17 +127,6 @@ class ChessServer:
                         # worker no longer available until 'ready' again
                         workers[worker] = False
                     
-
-    def update_nameserver(self, signum, frame):
-        addrs = socket.getaddrinfo(NSERVER, NPORT, socket.AF_UNSPEC, socket.SOCK_DGRAM)
-        for addr in addrs:
-            ai_fam, stype, proto, name, sa = addr
-            s = socket.socket(ai_fam, stype, proto)
-
-            s.sendto(json.dumps({"type":"chessClient","owner":"MMBW","port":self.c_port,"project":"GREGChessApp"}).encode(), sa)
-            s.sendto(json.dumps({"type":"chessWorker","owner":"MMBW","port":self.w_port,"project":"GREGChessApp"}).encode(), sa)
-            s.close()
-            break
 
 
 # Main
