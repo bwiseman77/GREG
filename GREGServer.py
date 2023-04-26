@@ -2,6 +2,7 @@
 
 import time
 import zmq
+import zmq.utils.monitor
 import chess
 import signal
 import sys
@@ -30,9 +31,38 @@ class ChessServer:
         self.router.bind(f"tcp://*:{self.w_port}")
         self.client.bind(f"tcp://*:{self.c_port}")
 
+        # set up socket monitors
+        self.monitor = self.router.get_monitor_socket(events=zmq.EVENT_ACCEPTED|zmq.EVENT_DISCONNECTED|zmq.EVENT_HANDSHAKE_SUCCEEDED)
+        #self.monitor.setsockopt(zmq.MONITOR_ROUTER, 1)
+
         # set up name server pinging
         signal.setitimer(signal.ITIMER_REAL, 1, 60)
         signal.signal(signal.SIGALRM, self.update_nameserver)
+
+        self.worker_ids = dict()
+        self.worker_tasks = dict()
+        self.worker_avail = dict()
+
+    
+    def on_event(self, event, value):
+        print(event, value)
+        if event == zmq.EVENT_DISCONNECTED:
+            # check if there was data sent to this worker id etc
+            curr_w = self.get_worker_id(value)
+            print("fd:", curr_w)
+
+    def get_worker_id(self, value):
+        return self.worker_ids[int(value)]
+
+    def remove_worker_id(self, value):
+        try:
+            self.worker_ids.pop(int(value))
+        except:
+            pass
+
+    def set_worker_id(self, value, worker_id):
+        self.worker_ids[int(value)] = worker_id
+    
     
     def update_nameserver(self, signum, frame):
         addrs = socket.getaddrinfo(NSERVER, NPORT, socket.AF_UNSPEC, socket.SOCK_DGRAM)
@@ -51,6 +81,7 @@ class ChessServer:
         poller = zmq.Poller()
         poller.register(self.router, zmq.POLLIN)
         poller.register(self.client, zmq.POLLIN)
+        poller.register(self.monitor, zmq.POLLIN)
     
         # store the worker ids and availabilities
         workers = {}
@@ -68,6 +99,15 @@ class ChessServer:
             # get lists of readable sockets
             socks = dict(poller.poll())
 
+            # monitor one
+            if self.monitor in socks and socks[self.monitor] == zmq.POLLIN:
+                try:
+                    # event = self.monitor.recv_event()
+                    event = zmq.utils.monitor.recv_monitor_message(self.monitor)
+                    self.on_event(event['event'], event['value'])
+                except Exception as e:
+                    print(e)
+
             # if WORKER has a message!
             if self.router in socks and socks[self.router] == zmq.POLLIN:
                 w_id, c_id, message = self.router.recv_multipart()
@@ -77,6 +117,8 @@ class ChessServer:
                 # worker ready
                 if msg_type == "WorkerRequest":
                     workers[w_id] = True
+                    fd = self.router.getsockopt(zmq.FD)
+                    print(fd)
                     print("ya worker ready")
 
                 # worker returned result    
