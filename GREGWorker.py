@@ -149,14 +149,16 @@ class ChessWorker:
     def get_jobs(self):
         while True:
             # tell server 'im ready!'
-            self.socket.send_multipart([b"", b"ready"])
-            c_id, board, message = self.socket.recv_multipart()
-            
-            # print board after making move
-            move = message.decode("utf-8")
-            b = board.decode()
-            board = chess.Board(fen=b)
+            msg = json.dumps({"type":"WorkerRequest", "status":"Ready"}).encode()
+            self.socket.send_multipart([b"", msg])
+            c_id, message = self.socket.recv_multipart()
+            message       = json.loads(message)
 
+            # print board after making move
+            moves = message["listOfMoves"]
+            b     = message["board"]
+            depth = message["depth"]
+            board = chess.Board(fen=b)
 
             # Try multi-core
             #with concurrent.futures.ProcessPoolExecutor(1) as executor:
@@ -165,12 +167,11 @@ class ChessWorker:
             #for a in ans:
             #    print(a)
 
-            s = solve([move], board, 5)
+            s = solve(moves, board, depth)
 
             # sending the work back to server
-            message = str(s[1]) + "," + s[0]
-            print(message)
-            self.socket.send_multipart([c_id, message.encode("utf-8")])
+            message = json.dumps({"type":"WorkerResult", "move":s[0], "score":s[1], "board":b, "depth":depth}).encode()
+            self.socket.send_multipart([c_id, message])
 
 def main():
     worker = ChessWorker()

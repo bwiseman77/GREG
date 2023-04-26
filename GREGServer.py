@@ -71,16 +71,19 @@ class ChessServer:
             # if WORKER has a message!
             if self.router in socks and socks[self.router] == zmq.POLLIN:
                 w_id, c_id, message = self.router.recv_multipart()
+                message = json.loads(message)
 
+                msg_type = message["type"]
                 # worker ready
-                if message == b"ready":
+                if msg_type == "WorkerRequest":
                     workers[w_id] = True
                     print("ya worker ready")
 
                 # worker returned result    
                 else:
+                    move  = message["move"]
+                    score = message["score"]
                     workers[w_id] = False
-                    score, board = message.decode().split(",")
                     num_received += 1
 
 
@@ -88,31 +91,37 @@ class ChessServer:
                     score = int(score)
                     if score > best_score:
                         #print(score)
-                        best = board
+                        best = move
                         best_score = score
     
                     # need to count this but for all clients (so maybe dictionary)               
                     if num_received == num_moves:
                         print(best, best_score)
-                        self.client.send_multipart([c_id, c_id, best.encode()])
+                        msg = json.dumps({"move":best, "score":best_score}).encode()
+                        self.client.send_multipart([c_id, c_id, msg])
                         
 
             # if CLIENT has a message!
             if self.client in socks and socks[self.client] == zmq.POLLIN:
+                # read and parse message
                 c_id, message = self.client.recv_multipart()
-                
-                # split up possible moves and add to task queue
-                b = message.decode()
+                message       = json.loads(message.decode())
+
+                b     = message["board"]
+                depth = message["depth"]
+
                 board = chess.Board(fen=b)
+                
                 # need to change for mulit-client
                 num_received = 0
                 best_score = float('-inf')
                 legal_moves = board.legal_moves
                 num_moves = legal_moves.count()
 
+                # split up possible moves and add to task queue
                 for move in board.pseudo_legal_moves:
                     if move in board.legal_moves:
-                        queue.append((c_id, board, move))
+                        queue.append((c_id, board, move.uci(), depth))
 
 
             #print("queue: ", queue)
@@ -121,8 +130,9 @@ class ChessServer:
             if len(queue) > 0:
                 for worker, available in workers.items():
                     if available:
-                        client_id, board, message = queue.pop()
-                        self.router.send_multipart([bytes(worker), bytes(client_id), board.fen().encode(), str(message).encode()])
+                        client_id, board, move, depth= queue.pop()
+                        msg = json.dumps({"listOfMoves":[move], "board":board.fen(),"depth":depth}).encode()
+                        self.router.send_multipart([bytes(worker), bytes(client_id), msg])
                         
                         # worker no longer available until 'ready' again
                         workers[worker] = False
