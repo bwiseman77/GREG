@@ -8,11 +8,7 @@ import signal
 import sys
 import json
 import socket
-from threading import Thread
-
-# from the stack overflow thingy
-import random
-from multiprocessing import Pool, Process
+from threading import Lock
 
 # Globals
 NSERVER = "catalog.cse.nd.edu"
@@ -20,7 +16,18 @@ NPORT   = 9097
 
 # Classes 
 class ChessServer:
+    
+    HEARTBEAT_LIVENESS = 3
+    HEARTBEAT_INTERVAL = 2500 # msecs
+    HEARTBEAT_EXPIRY = HEARTBEAT_INTERVAL * HEARTBEAT_LIVENESS
+
+    heartbeat_at = None
+
+
+
     def __init__(self):
+        self.heartbeat_at = time.time() + 1e-3*self.HEARTBEAT_INTERVAL
+
         # create zmq context
         self.context = zmq.Context()
         self.worker  = self.context.socket(zmq.ROUTER)
@@ -37,6 +44,7 @@ class ChessServer:
         signal.signal(signal.SIGALRM, self.update_nameserver)
 
         self.workers = dict()
+        self.waiting = []
         self.work_queue = []
 
 
@@ -80,11 +88,12 @@ class ChessServer:
 
         
 
-    def add_worker(self, worker_id, available=False, alive=True, task=''):
+    def add_worker(self, worker_id, available=False, alive=True, task='', expiry=0):
         self.workers[worker_id] = {
             'available': available,
             'alive': alive,
-            'task': task
+            'task': task,
+            'expiry': expiry
         }
 
 
@@ -101,6 +110,8 @@ class ChessServer:
         self.workers[worker_id]['available'] = False
         self.workers[worker_id]['alive'] = False
 
+    
+
 
     def update_nameserver(self, signum, frame):
         addrs = socket.getaddrinfo(NSERVER, NPORT, socket.AF_UNSPEC, socket.SOCK_DGRAM)
@@ -116,7 +127,7 @@ class ChessServer:
             s.close()
             break
 
-
+    
     def run(self):
         # register sockets for the clients and the workers
         poller = zmq.Poller()
@@ -127,8 +138,11 @@ class ChessServer:
         # main loop
         while True:
             # get lists of readable sockets
-            socks = dict(poller.poll())
-            print(socks)
+            try:
+                socks = dict(poller.poll(self.HEARTBEAT_INTERVAL))
+                print(socks)
+            except KeyboardInterrupt:
+                break
 
             # if WORKER has a message!
             if self.worker in socks and socks[self.worker] == zmq.POLLIN:
@@ -146,6 +160,8 @@ class ChessServer:
                     move  = message["move"]
                     score = message["score"]
                     self.returned_result(w_id, c_id, move, score)
+
+                # update expiry time
                         
 
             # if CLIENT has a message!
@@ -180,7 +196,26 @@ class ChessServer:
                         
                         # worker no longer available until 'ready' again
                         self.workers[worker]['available'] = False
-                    
+      
+            self.send_heartbeats()
+
+        def send_heartbeats(self):
+            if time.time() > self.heartbeat_at:
+                for worker in self.waiting:
+                    self.worker.send_multipart([bytes(worker), bytes('<3')])
+                self.heartbeat_at = time.time() + 1e-3*self.HEARTBEAT_INTERVAL
+
+        def purge_workers(self):
+            while self.waiting:
+                w = self.waiting[0]
+                # workers in order of expiry
+                if self.workers[w]['expiry'] < time.time():
+                    print("delete expired worker")
+                    self.worker_die(w)
+                    self.waiting.pop(0)
+                else:
+                    break
+
 
 # Main
 def main():
