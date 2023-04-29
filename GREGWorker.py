@@ -9,6 +9,7 @@ import json
 import concurrent.futures
 import time
 import zmq.utils.monitor
+import signal
 
 # Globals
 
@@ -87,10 +88,17 @@ def score_move(move, board, depth, engine=None):
 
 # Classes 
 class ChessWorker:
+    HEARTBEAT_INTERVAL = 30000
+    HEARTBEAT_INTERVAL_S = 30
+
     def __init__(self):
         global Engine
         self.find_server()
         self.engine = Engine
+
+        # <3
+        signal.setitimer(signal.ITIMER_REAL, 1, self.HEARTBEAT_INTERVAL_S)
+        signal.signal(signal.SIGALRM, self.send_heartbeat) # this does not treat the other messages as heartbeats but ig its ok
 
     ############################
     #   Networking Functions   #
@@ -142,6 +150,11 @@ class ChessWorker:
         elif event['event'] == zmq.EVENT_CONNECT_RETRIED:
             return False
         return False
+
+    def send_heartbeat(self, signum, frame):
+        msg = json.dumps({"type": "<3"}).encode()
+        self.socket.send_multipart([b"", msg])
+        print("sent <3")
         
     #######################
     #   Chess Functions   #

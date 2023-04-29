@@ -18,8 +18,9 @@ NPORT   = 9097
 class ChessServer:
     
     HEARTBEAT_LIVENESS = 3
-    HEARTBEAT_INTERVAL = 2500 # msecs
+    HEARTBEAT_INTERVAL = 30000 # msecs
     HEARTBEAT_EXPIRY = HEARTBEAT_INTERVAL * HEARTBEAT_LIVENESS
+    POLL_TIMEOUT = 30000
 
     heartbeat_at = None
 
@@ -128,6 +129,25 @@ class ChessServer:
             break
 
     
+    def update_expiry(self, worker_id):
+        self.workers[worker_id]['expiry'] = time.time() + 1e-3*self.HEARTBEAT_EXPIRY
+        if worker_id in self.waiting:
+            self.waiting.remove(worker_id)
+        self.waiting.append(worker_id)
+
+
+    def purge_workers(self):
+        while self.waiting:
+            w = self.waiting[0]
+            # workers in order of expiry
+            if self.workers[w]['expiry'] < time.time():
+                print("delete expired worker")
+                self.worker_die(w)
+                self.waiting.pop(0)
+            else:
+                break
+
+
     def run(self):
         # register sockets for the clients and the workers
         poller = zmq.Poller()
@@ -139,7 +159,7 @@ class ChessServer:
         while True:
             # get lists of readable sockets
             try:
-                socks = dict(poller.poll(self.HEARTBEAT_INTERVAL))
+                socks = dict(poller.poll(self.POLL_TIMEOUT))
                 print(socks)
             except KeyboardInterrupt:
                 break
@@ -154,7 +174,9 @@ class ChessServer:
                 if msg_type == "WorkerRequest":
                     self.worker_req(w_id, True)
                     print("ya worker ready")
-
+                elif msg_type == "<3":
+                    print("<3")
+                    pass
                 # worker returned result    
                 else:
                     move  = message["move"]
@@ -162,6 +184,8 @@ class ChessServer:
                     self.returned_result(w_id, c_id, move, score)
 
                 # update expiry time
+                if w_id in self.workers:
+                    self.update_expiry(w_id)
                         
 
             # if CLIENT has a message!
@@ -197,24 +221,8 @@ class ChessServer:
                         # worker no longer available until 'ready' again
                         self.workers[worker]['available'] = False
       
-            self.send_heartbeats()
+            self.purge_workers()
 
-        def send_heartbeats(self):
-            if time.time() > self.heartbeat_at:
-                for worker in self.waiting:
-                    self.worker.send_multipart([bytes(worker), bytes('<3')])
-                self.heartbeat_at = time.time() + 1e-3*self.HEARTBEAT_INTERVAL
-
-        def purge_workers(self):
-            while self.waiting:
-                w = self.waiting[0]
-                # workers in order of expiry
-                if self.workers[w]['expiry'] < time.time():
-                    print("delete expired worker")
-                    self.worker_die(w)
-                    self.waiting.pop(0)
-                else:
-                    break
 
 
 # Main
