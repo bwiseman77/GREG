@@ -151,11 +151,13 @@ class ChessWorker:
             return False
         return False
 
+
     def send_heartbeat(self, signum, frame):
         msg = json.dumps({"type": "<3"}).encode()
         self.socket.send_multipart([b"", msg])
         print("sent <3")
         
+    
     #######################
     #   Chess Functions   #
     #######################

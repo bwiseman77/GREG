@@ -48,6 +48,8 @@ class ChessServer:
         self.waiting = []
         self.work_queue = []
 
+        self.clients = dict()
+        
 
         self.best_move = ''
         self.best_score = float('-inf')
@@ -97,6 +99,11 @@ class ChessServer:
             'expiry': expiry
         }
 
+    def add_client(self, client_id):
+        self.clients[client_id] = {
+            'active': True,
+            'expiry': 0
+        }
 
     def worker_die(self, worker_id):
         # check if there was work assigned
@@ -129,11 +136,14 @@ class ChessServer:
             break
 
     
-    def update_expiry(self, worker_id):
-        self.workers[worker_id]['expiry'] = time.time() + 1e-3*self.HEARTBEAT_EXPIRY
-        if worker_id in self.waiting:
-            self.waiting.remove(worker_id)
-        self.waiting.append(worker_id)
+    def update_expiry(self, is_worker, ident):
+        if is_worker:
+            self.workers[ident]['expiry'] = time.time() + 1e-3*self.HEARTBEAT_EXPIRY
+            if ident in self.waiting:
+                self.waiting.remove(ident)
+            self.waiting.append(ident)
+        else:
+            self.clients[ident]['expiry'] = time.time() + 1e-3*self.HEARTBEAT_EXPIRY
 
 
     def purge_workers(self):
@@ -147,6 +157,12 @@ class ChessServer:
             else:
                 break
 
+    def purge_clients(self):
+        for client, info in self.clients.items():
+            if info['expiry'] < time.time():
+                print("delete expired client")
+                self.clients[client]['active'] = False
+
 
     def run(self):
         # register sockets for the clients and the workers
@@ -159,7 +175,7 @@ class ChessServer:
         while True:
             # get lists of readable sockets
             try:
-                socks = dict(poller.poll(self.POLL_TIMEOUT))
+                socks = dict(poller.poll())
                 print(socks)
             except KeyboardInterrupt:
                 break
@@ -185,7 +201,7 @@ class ChessServer:
 
                 # update expiry time
                 if w_id in self.workers:
-                    self.update_expiry(w_id)
+                    self.update_expiry(is_worker=True, ident=w_id)
                         
 
             # if CLIENT has a message!
@@ -193,28 +209,38 @@ class ChessServer:
                 # read and parse message
                 c_id, message = self.client.recv_multipart()
                 message       = json.loads(message.decode())
+                if message.get("type") == "<3":
+                    print("client <3")
+                    pass
+                else:
 
-                b     = message["board"]
-                depth = message["depth"]
+                    b     = message["board"]
+                    depth = message["depth"]
 
-                board = chess.Board(fen=b)
+                    board = chess.Board(fen=b)
+                    
+                    # need to change for multi-client
+                    self.move_count = 0
+                    self.best_score = float('-inf')
+                    legal_moves = board.legal_moves
+                    self.num_moves = legal_moves.count()
+
+                    # split up possible moves and add to task queue
+                    for move in board.pseudo_legal_moves:
+                        if move in board.legal_moves:
+                            self.add_task((c_id, board, move.uci(), depth))
                 
-                # need to change for multi-client
-                self.move_count = 0
-                self.best_score = float('-inf')
-                legal_moves = board.legal_moves
-                self.num_moves = legal_moves.count()
-
-                # split up possible moves and add to task queue
-                for move in board.pseudo_legal_moves:
-                    if move in board.legal_moves:
-                        self.add_task((c_id, board, move.uci(), depth))
+                    self.add_client(c_id)
+                if c_id in self.clients:
+                    self.update_expiry(is_worker=False, ident=c_id)
             
             # send tasks to workers
-            if len(self.work_queue) > 0:
+            while len(self.work_queue) > 0:
                 for worker, info in self.workers.items():
                     if info['available'] and info['alive']:
-                        client_id, board, move, depth = self.work_queue.pop()
+                        client_id, board, move, depth = self.work_queue.pop() # wait this is def not right if more workers than tasks
+                        if not self.clients[client_id]['active']:
+                            break 
                         msg = json.dumps({"listOfMoves":[move], "board":board.fen(),"depth":depth}).encode()
                         self.worker.send_multipart([bytes(worker), bytes(client_id), msg])
                         
@@ -222,6 +248,7 @@ class ChessServer:
                         self.workers[worker]['available'] = False
       
             self.purge_workers()
+            self.purge_clients()
 
 
 

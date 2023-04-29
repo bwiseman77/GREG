@@ -16,11 +16,17 @@ UPDATE_DELAY = 60
 
 # Classes
 class ChessClient:
+    HEARTBEAT_INTERVAL = 30000
+    HEARTBEAT_INTERVAL_S = 30
+
     def __init__(self, depth=1):
         self.board = chess.Board()
         self.context = zmq.Context()
         self.find_server()
         self.depth = depth
+
+        signal.setitimer(signal.ITIMER_REAL, 1, self.HEARTBEAT_INTERVAL_S)
+        signal.signal(signal.SIGALRM, self.send_heartbeat)
 
     ############################
     #   Networking functions   #
@@ -38,7 +44,7 @@ class ChessClient:
 
             # look for available server
             for item in js:
-                if "type" in item and item["type"] == "chessClient" and int(item["lastheardfrom"]) + UPDATE_DELAY > time.time():
+                if "type" in item and item["type"] == "MiachessClient" and int(item["lastheardfrom"]) + UPDATE_DELAY > time.time():
                     print(item)
                     self.port = item["port"]
                     self.host = item["name"]
@@ -63,6 +69,12 @@ class ChessClient:
         elif event['event'] == zmq.EVENT_CLOSED:
             return False
         return False
+
+
+    def send_heartbeat(self, signum, frame):
+        msg = json.dumps({"type": "<3"}).encode()
+        self.socket.send(msg)
+        print("sent <3")
 
             
     #######################
