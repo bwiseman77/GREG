@@ -76,11 +76,9 @@ def score_move(move, board, depth, engine=None):
         # push whites best move
         opp_move = chess.Move.from_uci(solve([move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves], board, 1)[0])
         board.push(opp_move)
-        print("white", opp_move)
-        
+          
         # for every move in new board, see what is best
         score = solve([move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves], board, depth-1)
-        print("black", score[0])
         board.pop()
         board.pop()
         #engine.quit()
