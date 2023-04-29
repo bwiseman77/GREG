@@ -109,7 +109,8 @@ class ChessWorker:
 
             # look for available server
             for item in js:
-                if "type" in item and item["type"] == "chessWorker":
+                if "type" in item and item["type"] == "MiachessWorker":
+                    print(item)
                     self.port = item["port"]
                     self.host = item["name"]
                     try:
