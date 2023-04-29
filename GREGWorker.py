@@ -43,9 +43,11 @@ def solve(listOfMoves, board, depth, engine=None):
     top = sorted(topmoves, reverse=True)[:5]
     print(f"Top 5 moves for {board.turn}", top)
     for score, move in top:
+        print("scoring move",move)
         score = score_move(move, board, depth)
         if score > bestMove[1]:
             bestMove = (move, score)
+        print("---------------")
 
     return bestMove
 
@@ -74,9 +76,11 @@ def score_move(move, board, depth, engine=None):
         # push whites best move
         opp_move = chess.Move.from_uci(solve([move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves], board, 1)[0])
         board.push(opp_move)
+        print("white", opp_move)
         
         # for every move in new board, see what is best
         score = solve([move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves], board, depth-1)
+        print("black", score[0])
         board.pop()
         board.pop()
         #engine.quit()
@@ -141,6 +145,9 @@ class ChessWorker:
                 return True
 
             if int.from_bytes(event_type, byteorder='little') == int(zmq.EVENT_CLOSED):
+                return False
+
+            if int.from_bytes(event_type, byteorder='little') == int(zmq.EVENT_CONNECT_RETRIED):
                 return False
 
         return False
