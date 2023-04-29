@@ -168,7 +168,7 @@ class ChessServer:
             # send tasks to workers
             if len(self.work_queue) > 0:
                 for worker, info in self.workers.items():
-                    if info['available']:
+                    if info['available'] and info['alive']:
                         client_id, board, move, depth = self.work_queue.pop()
                         msg = json.dumps({"listOfMoves":[move], "board":board.fen(),"depth":depth}).encode()
                         self.router.send_multipart([bytes(worker), bytes(client_id), msg])
