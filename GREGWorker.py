@@ -38,12 +38,10 @@ def solve(listOfMoves, board, depth, engine=None):
     for move in listOfMoves:
         score = score_move(move, board, 1) #depth instead of 1
         topmoves.append((score, move))
-        #print(board)
-        if score > bestMove[1]:
-            bestMove = (move, score)
 
-    #print(sorted(topmoves, reverse=True)[:5])
-    for score, move in sorted(topmoves, reverse=True)[:5]:
+    top = sorted(topmoves, reverse=True)[:5]
+    print(f"Top 5 moves for {board.turn}")
+    for score, move in top:
         score = score_move(move, board, depth)
         if score > bestMove[1]:
             bestMove = (move, score)
@@ -132,10 +130,14 @@ class ChessWorker:
                 return False
             event_type = event[0]
             event_addr = event[1]
+ 
 
             # if handshake didnt fail, return true
             if int.from_bytes(event_type, byteorder='little') == int(zmq.EVENT_HANDSHAKE_SUCCEEDED):
                 return True
+
+            if int.from_bytes(event_type, byteorder='little') == int(zmq.EVENT_CLOSED):
+                return False
 
         return False
         

@@ -19,16 +19,15 @@ NPORT   = 9097
 
 # Classes 
 class ChessServer:
-    def __init__(self, w_port=5556, c_port=5558):
-        self.w_port = w_port
-        self.c_port = c_port
-
+    def __init__(self):
+        # create zmq context
         self.context = zmq.Context()
-        self.router = self.context.socket(zmq.ROUTER)
-        self.client = self.context.socket(zmq.ROUTER)
+        self.worker  = self.context.socket(zmq.ROUTER)
+        self.client  = self.context.socket(zmq.ROUTER)
         
-        self.router.bind(f"tcp://*:{self.w_port}")
-        self.client.bind(f"tcp://*:{self.c_port}")
+        # bind to random port
+        self.w_port  = self.worker.bind_to_random_port(f"tcp://*")
+        self.c_port  = self.client.bind_to_random_port(f"tcp://*")
 
         # set up name server pinging
         signal.setitimer(signal.ITIMER_REAL, 1, 60)
@@ -38,7 +37,10 @@ class ChessServer:
         addrs = socket.getaddrinfo(NSERVER, NPORT, socket.AF_UNSPEC, socket.SOCK_DGRAM)
         for addr in addrs:
             ai_fam, stype, proto, name, sa = addr
-            s = socket.socket(ai_fam, stype, proto)
+            try:
+                s = socket.socket(ai_fam, stype, proto)
+            except:
+                continue
 
             s.sendto(json.dumps({"type":"chessClient","owner":"MMBW","port":self.c_port,"project":"GREGChessApp"}).encode(), sa)
             s.sendto(json.dumps({"type":"chessWorker","owner":"MMBW","port":self.w_port,"project":"GREGChessApp"}).encode(), sa)
@@ -49,7 +51,7 @@ class ChessServer:
     def run(self):
         # register sockets for the clients and the workers
         poller = zmq.Poller()
-        poller.register(self.router, zmq.POLLIN)
+        poller.register(self.worker, zmq.POLLIN)
         poller.register(self.client, zmq.POLLIN)
     
         # store the worker ids and availabilities
@@ -64,13 +66,14 @@ class ChessServer:
         # queue to contain the tasks for the workers
         queue = []
 
+        # main loop
         while True:
             # get lists of readable sockets
             socks = dict(poller.poll())
 
             # if WORKER has a message!
-            if self.router in socks and socks[self.router] == zmq.POLLIN:
-                w_id, c_id, message = self.router.recv_multipart()
+            if self.worker in socks and socks[self.worker] == zmq.POLLIN:
+                w_id, c_id, message = self.worker.recv_multipart()
                 message = json.loads(message)
 
                 msg_type = message["type"]
@@ -132,7 +135,7 @@ class ChessServer:
                     if available:
                         client_id, board, move, depth= queue.pop()
                         msg = json.dumps({"listOfMoves":[move], "board":board.fen(),"depth":depth}).encode()
-                        self.router.send_multipart([bytes(worker), bytes(client_id), msg])
+                        self.worker.send_multipart([bytes(worker), bytes(client_id), msg])
                         
                         # worker no longer available until 'ready' again
                         workers[worker] = False
