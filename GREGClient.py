@@ -1,5 +1,6 @@
 # GREG Client
 import zmq
+import zmq.utils.monitor
 import chess
 import sys
 import http.client
@@ -33,8 +34,9 @@ class ChessClient:
             
             self.context = zmq.Context()
             self.socket = self.context.socket(zmq.DEALER)
-            self.monitor = self.socket.get_monitor_socket()
+            self.monitor = self.socket.get_monitor_socket(zmq.EVENT_CLOSED|zmq.EVENT_HANDSHAKE_SUCCEEDED|zmq.EVENT_DISCONNECTED)
 
+            # look for available server
             for item in js:
                 if "type" in item and item["type"] == "chessClient" and int(item["lastheardfrom"]) + UPDATE_DELAY > time.time():
                     print(item)
@@ -50,19 +52,18 @@ class ChessClient:
     def connect(self):
         '''Connect to chess server, and checks to make handshake was successful'''
         self.socket.connect(f"tcp://{self.host}:{self.port}")
-        while True:
-            try:
-                event = self.monitor.recv_multipart()
-            except zmq.ZMQError as e:
-                print(e)
-                return False
-
-            event_type = event[0]
-            event_addr = event[1]
-            if int.from_bytes(event_type, byteorder='little') == int(zmq.EVENT_HANDSHAKE_SUCCEEDED):
-                return True
         
+        try:
+            event = zmq.utils.monitor.recv_monitor_message(self.monitor)
+        except zmq.ZMQError as e:
+            print(e)
+            return False
+        if event['event'] == zmq.EVENT_HANDSHAKE_SUCCEEDED:
+            return True
+        elif event['event'] == zmq.EVENT_CLOSED:
+            return False
         return False
+
             
     #######################
     #   Chess Functions   #
