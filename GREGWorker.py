@@ -134,9 +134,9 @@ class ChessWorker:
             return True
         elif event['event'] == zmq.EVENT_CLOSED:
             return False
-        elif event['event'] == zmq.EVENT_DELAYED:
+        elif event['event'] == zmq.EVENT_CONNECT_DELAYED:
             return False
-        elif event['event'] == zmq.EVENT_RETRIED:
+        elif event['event'] == zmq.EVENT_CONNECT_RETRIED:
             return False
         return False
         
