@@ -7,6 +7,7 @@ import http.client
 import json
 import concurrent.futures
 import time
+import zmq.utils.monitor
 
 # Globals
 
@@ -40,7 +41,7 @@ def solve(listOfMoves, board, depth, engine=None):
         topmoves.append((score, move))
 
     top = sorted(topmoves, reverse=True)[:5]
-    print(f"Top 5 moves for {board.turn}")
+    print(f"Top 5 moves for {board.turn}", top)
     for score, move in top:
         score = score_move(move, board, depth)
         if score > bestMove[1]:
@@ -71,14 +72,15 @@ def score_move(move, board, depth, engine=None):
         board.push(chess.Move.from_uci(move))
 
         # push whites best move
-        board.push(chess.Move.from_uci(solve([move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves], board, 1)[0]))
+        opp_move = chess.Move.from_uci(solve([move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves], board, 1)[0])
+        board.push(opp_move)
         
         # for every move in new board, see what is best
-        score = solve([move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves], board, depth-1)[1]
+        score = solve([move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves], board, depth-1)
         board.pop()
         board.pop()
         #engine.quit()
-        return score
+        return score[1]
 
 # Classes 
 class ChessWorker:
@@ -125,6 +127,8 @@ class ChessWorker:
         while True:
             try:
                 event = self.monitor.recv_multipart()
+
+                print(zmq.utils.monitor.parse_monitor_message(event))
             except zmq.ZMQError as e:
                 print(e)
                 return False

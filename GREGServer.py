@@ -29,6 +29,8 @@ class ChessServer:
         self.w_port  = self.worker.bind_to_random_port(f"tcp://*")
         self.c_port  = self.client.bind_to_random_port(f"tcp://*")
 
+        print(self.c_port, self.w_port)
+
         # set up name server pinging
         signal.setitimer(signal.ITIMER_REAL, 1, 60)
         signal.signal(signal.SIGALRM, self.update_nameserver)

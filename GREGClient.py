@@ -37,6 +37,7 @@ class ChessClient:
 
             for item in js:
                 if "type" in item and item["type"] == "chessClient" and int(item["lastheardfrom"]) + UPDATE_DELAY > time.time():
+                    print(item)
                     self.port = item["port"]
                     self.host = item["name"]
 
