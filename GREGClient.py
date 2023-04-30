@@ -25,7 +25,7 @@ class ChessClient:
         self.find_server()
         self.depth = depth
 
-        signal.setitimer(signal.ITIMER_REAL, 1, self.HEARTBEAT_INTERVAL_S)
+        signal.setitimer(signal.ITIMER_REAL, 30, self.HEARTBEAT_INTERVAL_S)
         signal.signal(signal.SIGALRM, self.send_heartbeat)
 
     ############################

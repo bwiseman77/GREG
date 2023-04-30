@@ -97,9 +97,12 @@ class ChessWorker:
         self.engine = Engine
 
         # <3
-        signal.setitimer(signal.ITIMER_REAL, 1, self.HEARTBEAT_INTERVAL_S)
-        signal.signal(signal.SIGALRM, self.send_heartbeat) # this does not treat the other messages as heartbeats but ig its ok
+        signal.setitimer(signal.ITIMER_REAL, 30, self.HEARTBEAT_INTERVAL_S)
+        signal.signal(signal.SIGALRM, self.send_heartbeat) 
+        
+        self.heartbeat_at = 0
 
+    
     ############################
     #   Networking Functions   #
     ############################
@@ -153,11 +156,17 @@ class ChessWorker:
 
 
     def send_heartbeat(self, signum, frame):
-        msg = json.dumps({"type": "<3"}).encode()
-        self.socket.send_multipart([b"", msg])
-        print("sent <3")
+        if self.heartbeat_at < time.time():
+            msg = json.dumps({"type": "<3"}).encode()
+            self.socket.send_multipart([b"", msg])
+            print("sent <3")
+            self.update_expiry()
+
         
+    def update_expiry(self):
+        self.heartbeat_at = time.time() + 1e-3*self.HEARTBEAT_INTERVAL
     
+
     #######################
     #   Chess Functions   #
     #######################
@@ -169,7 +178,10 @@ class ChessWorker:
         while True:
             # tell server 'im ready!'
             msg = json.dumps({"type":"WorkerRequest", "status":"Ready"}).encode()
-            self.socket.send_multipart([b"", msg])
+            print("sent readyyy")
+            self.socket.send_multipart([b'', msg])
+            self.update_expiry()
+
             c_id, message = self.socket.recv_multipart()
             message       = json.loads(message)
 

@@ -174,11 +174,11 @@ class ChessServer:
         # main loop
         while True:
             # get lists of readable sockets
-            try:
-                socks = dict(poller.poll())
-                print(socks)
-            except KeyboardInterrupt:
-                break
+           # try:
+            socks = dict(poller.poll())
+            print(socks)
+            #except KeyboardInterrupt:
+            #    break
 
             # if WORKER has a message!
             if self.worker in socks and socks[self.worker] == zmq.POLLIN:
@@ -235,17 +235,17 @@ class ChessServer:
                     self.update_expiry(is_worker=False, ident=c_id)
             
             # send tasks to workers
-            while len(self.work_queue) > 0:
-                for worker, info in self.workers.items():
-                    if info['available'] and info['alive']:
-                        client_id, board, move, depth = self.work_queue.pop() # wait this is def not right if more workers than tasks
-                        if not self.clients[client_id]['active']:
-                            break 
-                        msg = json.dumps({"listOfMoves":[move], "board":board.fen(),"depth":depth}).encode()
-                        self.worker.send_multipart([bytes(worker), bytes(client_id), msg])
-                        
-                        # worker no longer available until 'ready' again
-                        self.workers[worker]['available'] = False
+            available_workers = [x for x in self.workers if self.workers[x]['available'] and self.workers[x]['alive']]
+            while len(self.work_queue) > 0 and len(available_workers) > 0:
+                client_id, board, move, depth = self.work_queue.pop() # wait this is def not right if more workers than tasks
+                if not self.clients[client_id]['active']:
+                    continue 
+                worker = available_workers.pop()
+                msg = json.dumps({"listOfMoves":[move], "board":board.fen(),"depth":depth}).encode()
+                self.worker.send_multipart([bytes(worker), bytes(client_id), msg])
+                
+                # worker no longer available until 'ready' again
+                self.workers[worker]['available'] = False
       
             self.purge_workers()
             self.purge_clients()
