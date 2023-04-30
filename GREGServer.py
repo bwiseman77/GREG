@@ -20,7 +20,10 @@ NPORT   = 9097
 
 # Classes 
 class ChessServer:
-    def __init__(self):
+    def __init__(self, debug=False, name=""):
+        self.debug   = debug
+        self.name    = name
+
         # create zmq context
         self.context = zmq.Context()
         self.worker  = self.context.socket(zmq.ROUTER)
@@ -30,7 +33,8 @@ class ChessServer:
         self.w_port  = self.worker.bind_to_random_port(f"tcp://*")
         self.c_port  = self.client.bind_to_random_port(f"tcp://*")
 
-        print(self.c_port, self.w_port)
+        if debug:
+            print(self.c_port, self.w_port)
 
         # set up name server pinging
         signal.setitimer(signal.ITIMER_REAL, 1, 60)
@@ -40,15 +44,14 @@ class ChessServer:
         self.work_queue = []
 
 
-        self.best_move = ''
+        self.best_move  = ''
         self.best_score = float('-inf')
-        self.num_moves = 0
+        self.num_moves  = 0
         self.move_count = 0
 
 
     def add_task(self, task):
         self.work_queue.append(task)
-
 
     def worker_req(self, worker_id, available=False):
         if worker_id in self.workers:
@@ -68,11 +71,12 @@ class ChessServer:
             self.move_count += 1
             score = int(score)
             if score > self.best_score:
-                self.best_move = move
+                self.best_move  = move
                 self.best_score = score
 
             if self.move_count == self.num_moves:
-                print(self.best_move, self.best_score)
+                if self.debug:
+                    print(self.best_move, self.best_score)
                 msg = json.dumps({"move":self.best_move, "score":self.best_score}).encode()
                 self.client.send_multipart([client_id, client_id, msg])
 
@@ -111,8 +115,8 @@ class ChessServer:
             except:
                 continue
 
-            s.sendto(json.dumps({"type":"MiachessClient","owner":"MMBW","port":self.c_port,"project":"GREGChessApp"}).encode(), sa)
-            s.sendto(json.dumps({"type":"MiachessWorker","owner":"MMBW","port":self.w_port,"project":"GREGChessApp"}).encode(), sa)
+            s.sendto(json.dumps({"type":f"{self.name}chessClient","owner":"MMBW","port":self.c_port,"project":"GREGChessApp"}).encode(), sa)
+            s.sendto(json.dumps({"type":f"{self.name}chessWorker","owner":"MMBW","port":self.w_port,"project":"GREGChessApp"}).encode(), sa)
             s.close()
             break
 
@@ -128,18 +132,19 @@ class ChessServer:
         while True:
             # get lists of readable sockets
             socks = dict(poller.poll())
-            print(socks)
-
             # if WORKER has a message!
             if self.worker in socks and socks[self.worker] == zmq.POLLIN:
                 w_id, c_id, message = self.worker.recv_multipart()
                 message = json.loads(message)
+                if self.debug:
+                    print(message)
                 msg_type = message["type"]
 
                 # worker ready
                 if msg_type == "WorkerRequest":
                     self.worker_req(w_id, True)
-                    print("ya worker ready")
+                    if self.debug:
+                        print("ya worker ready")
 
                 # worker returned result    
                 else:
@@ -153,6 +158,9 @@ class ChessServer:
                 # read and parse message
                 c_id, message = self.client.recv_multipart()
                 message       = json.loads(message.decode())
+                
+                if self.debug:
+                    print(message)
 
                 b     = message["board"]
                 depth = message["depth"]
@@ -182,9 +190,39 @@ class ChessServer:
                         self.workers[worker]['available'] = False
                     
 
+def usage(status):
+    print(f"Usage: ./GREGServer.py [options]")
+    print(f"    -n NAME    Add unique name")
+    print(f"    -d         Turn debugging on")
+    print(f"    -h         help")
+    exit(status)
+
+
 # Main
 def main():
-    server = ChessServer()
+    # options
+    debug  = False
+    name   = ""
+    argind = 1
+    
+    # parse args
+    while argind < len(sys.argv):
+        arg = sys.argv[argind]
+
+        if arg == "-d":
+            debug = True
+        elif arg == "-n":
+            argind += 1
+            name = sys.argv[argind]
+        elif arg == "-h":
+            usage(0)
+        else:
+            usage(1)
+        argind += 1
+
+
+    # run game
+    server = ChessServer(debug, name)
     server.run()
 
 if __name__ == "__main__":
