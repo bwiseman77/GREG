@@ -19,11 +19,14 @@ class ChessClient:
     HEARTBEAT_INTERVAL = 30000
     HEARTBEAT_INTERVAL_S = 30
 
-    def __init__(self, depth=1):
-        self.board = chess.Board()
+    def __init__(self, depth=1, isBlack=True, name="", silent=False):
+        self.board   = chess.Board()
         self.context = zmq.Context()
+        self.isBlack = isBlack
+        self.depth   = depth
+        self.name    = name
+        self.silent  = silent
         self.find_server()
-        self.depth = depth
 
         signal.setitimer(signal.ITIMER_REAL, 30, self.HEARTBEAT_INTERVAL_S)
         signal.signal(signal.SIGALRM, self.send_heartbeat)
@@ -44,8 +47,9 @@ class ChessClient:
 
             # look for available server
             for item in js:
-                if "type" in item and item["type"] == "MiachessClient" and int(item["lastheardfrom"]) + UPDATE_DELAY > time.time():
-                    print(item)
+                if "type" in item and item["type"] == f"{self.name}chessClient" and int(item["lastheardfrom"]) + UPDATE_DELAY > time.time():
+                    if not self.silent:
+                        print(item)
                     self.port = item["port"]
                     self.host = item["name"]
 
@@ -53,7 +57,8 @@ class ChessClient:
                         if self.connect():
                             return
                     except zmq.ZMQError as exc:
-                        print(exc)
+                        if not self.silent:
+                            print(exc)
                     
     def connect(self):
         '''Connect to chess server, and checks to make handshake was successful'''
@@ -62,11 +67,16 @@ class ChessClient:
         try:
             event = zmq.utils.monitor.recv_monitor_message(self.monitor)
         except zmq.ZMQError as e:
-            print(e)
+            if not self.silent:
+                print(e)
             return False
         if event['event'] == zmq.EVENT_HANDSHAKE_SUCCEEDED:
             return True
         elif event['event'] == zmq.EVENT_CLOSED:
+            return False
+        elif event['event'] == zmq.EVENT_CONNECTION_DELAYED:
+            return False
+        elif event['event'] == zmq.EVENT_CONNECTION_RETRIED:
             return False
         return False
 
@@ -82,17 +92,43 @@ class ChessClient:
     #######################
     def play_game(self):
         '''Main game play function'''
+
+
+        if self.isBlack:
+            # print empty board
+            if not self.silent:
+                print(self.board.unicode(borders=True,invert_color=True,empty_square=" ", orientation=not self.isBlack))
+            
+            # ask for move
+            b = self.board.fen()
+            self.socket.send(bytes(json.dumps({"board":b, "depth":self.depth}), "utf-8"))
+            
+            # recv move
+            id_, msg = self.socket.recv_multipart()
+            msg      = json.loads(msg)
+            
+            # convert move and push to board
+            move = msg["move"]
+            print("CPU move: ", move)
+            move = chess.Move.from_uci(move)
+            self.board.push(move)
+            
         while(True):
             # print board
-            print(self.board.unicode(borders=True,invert_color=True,empty_square=" "))
+            if not self.silent:
+                print(self.board.unicode(borders=True,invert_color=True,empty_square=" ", orientation=not self.isBlack))
             
             # check for end of game
-            if self.board.is_checkmate():
+            if self.board.is_checkmate() or self.board.is_stalemate() or self.board.is_insufficient_material():
                 print(f"game over! {self.board.outcome().result()}")
                 exit(0)
 
             # get next move from user
-            move = input("Make your move (uci): \n")
+            if self.silent:
+                move = input() #sys.stdin.readline().decode()
+                
+            else:
+                move = input("Make your move (uci): \n")
 
             # q to quit game
             if move == "q":
@@ -115,45 +151,72 @@ class ChessClient:
             self.board.push(move)
 
             # print board for user
-            os.system('clear')
-            print(self.board.unicode(borders=True,invert_color=True,empty_square=" "))
+            if not self.silent:
+                os.system('clear')
+                print(self.board.unicode(borders=True,invert_color=True,empty_square=" ", orientation= not self.isBlack))
 
-            # get next move from server
-            b = self.board.fen()
+            
             
             # send the message
+            b = self.board.fen()
             self.socket.send(bytes(json.dumps({"board":b, "depth":self.depth}), "utf-8"))
 
             # recv move
             id_, msg = self.socket.recv_multipart()
             msg      = json.loads(msg)
-            print(msg)
             
             
             # convert move and push to board
             move = msg["move"]
             move = chess.Move.from_uci(move)
             self.board.push(move)
-            os.system('clear')
+            if not self.silent:
+                os.system('clear')
+            print("CPU move: ", move.uci()) 
 
 def usage(status):
 
     print(f"Usage: ./GREGClient.py [options]")
     print(f"    -d DEPTH    Depth of searches (depth = 1)")
+    print(f"    -n NAME     Add unique name")
+    print(f"    -b          Play as black instead of white")
     print(f"    -h          help")
-    return status
+    print(f"    -s          silent mode")
+
+    exit(status)
 
 # Main Execution
 def main():
-    depth = 1
-    if len(sys.argv) == 3:
-        depth = int(sys.argv[2]) 
-
-    if len(sys.argv) == 2:
-        usage(0)
+    # options
+    depth   = 1
+    isBlack = False
+    silent  = False
+    name    = ""
+    argind  = 1
     
-    print("Welcome to the GREG chess application! (q to quit)")      
-    client = ChessClient(depth)       
+    # parse command args
+    while argind < len(sys.argv):
+        arg = sys.argv[argind]
+        if arg == "-d":
+            argind += 1
+            depth = int(sys.argv[argind])
+        elif arg == "-b":
+            isBlack = True
+        elif arg == "-n":
+            argind += 1
+            name = sys.argv[argind]
+        elif arg == "-s":
+            silent = True
+        elif arg == "-h":
+            usage(0)
+        else:
+            usage(1)
+        argind += 1
+    
+    # play game
+    if not silent:
+        print("Welcome to the GREG chess application! (q to quit)")      
+    client = ChessClient(depth, isBlack, name, silent)
     client.play_game()
 
 

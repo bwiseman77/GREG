@@ -32,28 +32,26 @@ def multi_solve(info):
     engine.quit()
     return res
 
-def solve(listOfMoves, board, depth, engine=None):
+def solve(listOfMoves, board, depth, pretty=False, engine=None):
     '''Loop over a list of moves and return tuple (best move, best score)'''
     bestMove = (None, float("-inf"))
 
-    topmoves = [] # try new thing
-
+    # get scores of top level moves
+    topmoves = []
     for move in listOfMoves:
-        score = score_move(move, board, 1) #depth instead of 1
+        score = score_move(move, board, 1) 
         topmoves.append((score, move))
 
+    # only search moves that seem worth it
     top = sorted(topmoves, reverse=True)[:5]
-    print(f"Top 5 moves for {board.turn}", top)
     for score, move in top:
-        print("scoring move",move)
-        score = score_move(move, board, depth)
+        score = score_move(move, board, depth, pretty)
         if score > bestMove[1]:
             bestMove = (move, score)
-        print("---------------")
 
     return bestMove
 
-def score_move(move, board, depth, engine=None):
+def score_move(move, board, depth, pretty=False, engine=None):
     '''
         Scores a board. 
         Base case is depth == 1, which just returns the score of current board
@@ -61,29 +59,38 @@ def score_move(move, board, depth, engine=None):
         
     '''
     global Engine
-    engine = Engine
-    #engine = chess.engine.SimpleEngine.popen_uci("./stockfish")
-    turn = board.turn
-    if depth == 1:
-        board.push(chess.Move.from_uci(move))
-        analyse = engine.analyse(board, chess.engine.Limit(depth=0))
-        score = analyse["score"].pov(turn).score(mate_score=100000)
-        board.pop()
-        #engine.quit()
-        return score
-    else:
-        # push blacks move
-        board.push(chess.Move.from_uci(move))
 
+    # push blacks move
+    turn = board.turn
+    board.push(chess.Move.from_uci(move))
+
+    # print to look fancy
+    if pretty:
+        print(board.unicode(borders=True, invert_color=True,empty_square=" ", orientation = turn))
+
+    # base case
+    if depth == 1:
+
+        # get score of board
+        analyse = Engine.analyse(board, chess.engine.Limit(depth=0))
+        score = analyse["score"].pov(turn).score(mate_score=100000)
+
+        # pop from board cuz i think its passed by reference??
+        board.pop()
+        return score
+
+    # non base case
+    else:
         # push whites best move
-        opp_move = chess.Move.from_uci(solve([move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves], board, 1)[0])
+        opp_move = chess.Move.from_uci(solve([move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves], board, 1, pretty)[0])
         board.push(opp_move)
           
         # for every move in new board, see what is best
-        score = solve([move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves], board, depth-1)
+        score = solve([move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves], board, depth-1, pretty)
+
+        # pop from board cuz passed by ref???
         board.pop()
         board.pop()
-        #engine.quit()
         return score[1]
 
 # Classes 
@@ -93,8 +100,11 @@ class ChessWorker:
 
     def __init__(self):
         global Engine
-        self.find_server()
         self.engine = Engine
+        self.pretty = pretty
+        self.debug  = debug
+        self.name   = name
+        self.find_server()
 
         # <3
         signal.setitimer(signal.ITIMER_REAL, 30, self.HEARTBEAT_INTERVAL_S)
@@ -122,8 +132,9 @@ class ChessWorker:
 
             # look for available server
             for item in js:
-                if "type" in item and item["type"] == "MiachessWorker":
-                    print(item)
+                if "type" in item and item["type"] == f"{self.name}chessWorker":
+                    if self.debug:
+                        print(item)
                     self.port = item["port"]
                     self.host = item["name"]
                     try:
@@ -135,6 +146,8 @@ class ChessWorker:
     def connect(self):      
         '''Connect to a Server using ZMQ'''
         # set up socket
+        if self.pretty:
+            print(f"connecting to {self.host}:{self.port}")
         self.socket.connect(f"tcp://{self.host}:{self.port}")
 
         # zmq monitor magic
@@ -185,6 +198,9 @@ class ChessWorker:
             c_id, message = self.socket.recv_multipart()
             message       = json.loads(message)
 
+            if self.debug:
+                print(message)
+
             # print board after making move
             moves = message["listOfMoves"]
             b     = message["board"]
@@ -198,15 +214,49 @@ class ChessWorker:
             #for a in ans:
             #    print(a)
 
-            s = solve(moves, board, depth)
+            s = solve(moves, board, depth, self.pretty)
 
             # sending the work back to server
             message = json.dumps({"type":"WorkerResult", "move":s[0], "score":s[1], "board":b, "depth":depth}).encode()
             self.socket.send_multipart([c_id, message])
 
+def usage(status):
+
+    print(f"Usage: ./GREGWorker.py [options]")
+    print(f"    -n NAME    Add unique name")
+    print(f"    -d         Turn on Debugging")
+    print(f"    -p         Turn on pretty printing")
+    exit(status)
+
 def main():
-    worker = ChessWorker()
+    # options
+    pretty = False
+    debug  = False
+    name   = ""
+    argind = 1
+
+    # parse args
+    while argind < len(sys.argv):
+        arg = sys.argv[argind]
+        if arg == "-p":
+            pretty = True
+        elif arg == "-d":
+            debug == True
+        elif arg == "-n":
+            argind += 1
+            name = sys.argv[argind]
+        elif arg == "-h":
+            usage(0)
+        else:
+            usage(1)
+
+        argind += 1
+
+    # start doing work
+    worker = ChessWorker(pretty, debug, name)
     worker.get_jobs()
+
+    Engine.close()
 
 if __name__ == "__main__":
     main()
