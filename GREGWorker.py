@@ -211,6 +211,7 @@ class ChessWorker:
             if self.monitor in socks and socks[self.monitor] == zmq.POLLIN:
                 event = zmq.utils.monitor.recv_monitor_message(self.monitor) 
                 # on a disconnect, find server again and get jobs again
+                print(event)
                 if event['event'] == zmq.EVENT_DISCONNECTED:
                     self.find_server()
                     self.get_jobs()

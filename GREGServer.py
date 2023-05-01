@@ -56,10 +56,15 @@ class ChessServer:
     def add_task(self, task):
         '''
         task: param string: task to be added to the work queue
+
+        wrapper function to add task
         '''
         self.work_queue.append(task)
 
     def worker_req(self, worker_id, available=False):
+        '''
+        worker_id: param string: worker id that has the req
+        '''
         if worker_id in self.workers:
             # task not returned sadness
             task = self.workers[worker_id]['task']
@@ -74,6 +79,7 @@ class ChessServer:
         # if dead, trash results, now alive again!
         if not self.workers[worker_id]['alive']:
             self.workers[worker_id]['alive'] = True
+            self.workers[worker_id]['task'] = ''
         else:
             self.clients[client_id]['received_moves'] += 1
             score = int(score)
@@ -81,7 +87,8 @@ class ChessServer:
             if score > self.clients[client_id]['best_score']: 
                 self.clients[client_id]['best_move'] = move
                 self.clients[client_id]['best_score'] = score
-
+        
+            print(self.clients[client_id]['received_moves'], self.clients[client_id]['num_moves'])
             if self.clients[client_id]['received_moves'] == self.clients[client_id]['num_moves']:
                 if self.debug:
                     print(self.clients[client_id]['best_move'], self.clients[client_id]['best_score'])
@@ -121,7 +128,7 @@ class ChessServer:
             'expiry': 0,
             'best_move': '',
             'best_score': float('-inf'),
-            'num_moves': 0,
+            'num_moves': num_moves,
             'received_moves': 0
         }
 
