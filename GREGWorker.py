@@ -98,7 +98,7 @@ class ChessWorker:
     HEARTBEAT_INTERVAL = 30000
     HEARTBEAT_INTERVAL_S = 30
 
-    def __init__(self):
+    def __init__(self, pretty=False, debug=False, name=''):
         global Engine
         self.engine = Engine
         self.pretty = pretty
@@ -142,7 +142,8 @@ class ChessWorker:
                             return
                     except zmq.ZMQError as exc:
                         print("exc", exc)
-                
+          
+
     def connect(self):      
         '''Connect to a Server using ZMQ'''
         # set up socket
@@ -172,7 +173,8 @@ class ChessWorker:
         if self.heartbeat_at < time.time():
             msg = json.dumps({"type": "<3"}).encode()
             self.socket.send_multipart([b"", msg])
-            print("sent <3")
+            if self.debug:
+                print("sent <3")
             self.update_expiry()
 
         
@@ -187,38 +189,60 @@ class ChessWorker:
         for move in moves:
             yield ([move], board, depth)
 
+
     def get_jobs(self):
+
+        poller = zmq.Poller()
+        poller.register(self.socket, zmq.POLLIN)
+        poller.register(self.monitor, zmq.POLLIN)
+
         while True:
             # tell server 'im ready!'
             msg = json.dumps({"type":"WorkerRequest", "status":"Ready"}).encode()
-            print("sent readyyy")
+            if self.debug:
+                print("sent readyyy")
+
             self.socket.send_multipart([b'', msg])
             self.update_expiry()
 
-            c_id, message = self.socket.recv_multipart()
-            message       = json.loads(message)
+            socks = dict(poller.poll())
+            
+            # monitor has message
+            if self.monitor in socks and socks[self.monitor] == zmq.POLLIN:
+                event = zmq.utils.monitor.recv_monitor_message(self.monitor) 
+                # on a disconnect, find server again and get jobs again
+                if event['event'] == zmq.EVENT_DISCONNECTED:
+                    self.find_server()
+                    self.get_jobs()
 
-            if self.debug:
-                print(message)
+            # if socket has message with work
+            if self.socket in socks and socks[self.socket] == zmq.POLLIN:
+                c_id, message = self.socket.recv_multipart()
+                message       = json.loads(message)
 
-            # print board after making move
-            moves = message["listOfMoves"]
-            b     = message["board"]
-            depth = message["depth"]
-            board = chess.Board(fen=b)
+                if self.debug:
+                    print(message)
 
-            # Try multi-core
-            #with concurrent.futures.ProcessPoolExecutor(1) as executor:
-            #    ans = executor.map(multi_solve, self.spawn([move], board, 2))
+                # print board after making move
+                moves = message["listOfMoves"]
+                b     = message["board"]
+                depth = message["depth"]
+                board = chess.Board(fen=b)
 
-            #for a in ans:
-            #    print(a)
+                # Try multi-core
+                #with concurrent.futures.ProcessPoolExecutor(1) as executor:
+                #    ans = executor.map(multi_solve, self.spawn([move], board, 2))
 
-            s = solve(moves, board, depth, self.pretty)
+                #for a in ans:
+                #    print(a)
 
-            # sending the work back to server
-            message = json.dumps({"type":"WorkerResult", "move":s[0], "score":s[1], "board":b, "depth":depth}).encode()
-            self.socket.send_multipart([c_id, message])
+                s = solve(moves, board, depth, self.pretty)
+                time.sleep(5)
+
+                # sending the work back to server
+                message = json.dumps({"type":"WorkerResult", "move":s[0], "score":s[1], "board":b, "depth":depth}).encode()
+                self.socket.send_multipart([c_id, message])
+
 
 def usage(status):
 
@@ -227,6 +251,7 @@ def usage(status):
     print(f"    -d         Turn on Debugging")
     print(f"    -p         Turn on pretty printing")
     exit(status)
+
 
 def main():
     # options
