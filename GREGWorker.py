@@ -9,6 +9,7 @@ import json
 import concurrent.futures
 import time
 import zmq.utils.monitor
+import signal
 
 # Globals
 
@@ -94,7 +95,10 @@ def score_move(move, board, depth, pretty=False, engine=None):
 
 # Classes 
 class ChessWorker:
-    def __init__(self, pretty=False, debug=False, name=""):
+    HEARTBEAT_INTERVAL = 30000
+    HEARTBEAT_INTERVAL_S = 30
+
+    def __init__(self, pretty=False, debug=False, name=''):
         global Engine
         self.engine = Engine
         self.pretty = pretty
@@ -102,6 +106,13 @@ class ChessWorker:
         self.name   = name
         self.find_server()
 
+        # <3
+        signal.setitimer(signal.ITIMER_REAL, 30, self.HEARTBEAT_INTERVAL_S)
+        signal.signal(signal.SIGALRM, self.send_heartbeat) 
+        
+        self.heartbeat_at = 0
+
+    
     ############################
     #   Networking Functions   #
     ############################
@@ -131,7 +142,8 @@ class ChessWorker:
                             return
                     except zmq.ZMQError as exc:
                         print("exc", exc)
-                
+          
+
     def connect(self):      
         '''Connect to a Server using ZMQ'''
         # set up socket
@@ -158,7 +170,21 @@ class ChessWorker:
         #    return False
         print(event["event"])
         return False
+
+
+    def send_heartbeat(self, signum, frame):
+        if self.heartbeat_at < time.time():
+            msg = json.dumps({"type": "<3"}).encode()
+            self.socket.send_multipart([b"", msg])
+            if self.debug:
+                print("sent <3")
+            self.update_expiry()
+
         
+    def update_expiry(self):
+        self.heartbeat_at = time.time() + 1e-3*self.HEARTBEAT_INTERVAL
+    
+
     #######################
     #   Chess Functions   #
     #######################
@@ -166,35 +192,59 @@ class ChessWorker:
         for move in moves:
             yield ([move], board, depth)
 
+
     def get_jobs(self):
+
+        poller = zmq.Poller()
+        poller.register(self.socket, zmq.POLLIN)
+        poller.register(self.monitor, zmq.POLLIN)
+
         while True:
             # tell server 'im ready!'
             msg = json.dumps({"type":"WorkerRequest", "status":"Ready"}).encode()
-            self.socket.send_multipart([b"", msg])
-            c_id, message = self.socket.recv_multipart()
-            message       = json.loads(message)
-
             if self.debug:
-                print(message)
+                print("sent readyyy")
 
-            # print board after making move
-            moves = message["listOfMoves"]
-            b     = message["board"]
-            depth = message["depth"]
-            board = chess.Board(fen=b)
+            self.socket.send_multipart([b'', msg])
+            self.update_expiry()
 
-            # Try multi-core
-            #with concurrent.futures.ProcessPoolExecutor(1) as executor:
-            #    ans = executor.map(multi_solve, self.spawn([move], board, 2))
+            socks = dict(poller.poll())
+            
+            # monitor has message
+            if self.monitor in socks and socks[self.monitor] == zmq.POLLIN:
+                event = zmq.utils.monitor.recv_monitor_message(self.monitor) 
+                # on a disconnect, find server again and get jobs again
+                print(event)
+                if event['event'] == zmq.EVENT_DISCONNECTED:
+                    self.find_server()
+                    self.get_jobs()
 
-            #for a in ans:
-            #    print(a)
+            # if socket has message with work
+            if self.socket in socks and socks[self.socket] == zmq.POLLIN:
+                c_id, message = self.socket.recv_multipart()
+                message       = json.loads(message)
 
-            s = solve(moves, board, depth, self.pretty)
+                if self.debug:
+                    print(message)
 
-            # sending the work back to server
-            message = json.dumps({"type":"WorkerResult", "move":s[0], "score":s[1], "board":b, "depth":depth}).encode()
-            self.socket.send_multipart([c_id, message])
+                # print board after making move
+                moves = message["listOfMoves"]
+                b     = message["board"]
+                depth = message["depth"]
+                board = chess.Board(fen=b)
+
+                # Try multi-core
+                #with concurrent.futures.ProcessPoolExecutor(1) as executor:
+                #    ans = executor.map(multi_solve, self.spawn([move], board, 2))
+
+                #for a in ans:
+                #    print(a)
+
+                s = solve(moves, board, depth, self.pretty)
+
+                # sending the work back to server
+                message = json.dumps({"type":"WorkerResult", "move":s[0], "score":s[1], "board":b, "depth":depth}).encode()
+                self.socket.send_multipart([c_id, message])
 
 def usage(status):
 

@@ -16,6 +16,9 @@ UPDATE_DELAY = 60
 
 # Classes
 class ChessClient:
+    HEARTBEAT_INTERVAL = 30000
+    HEARTBEAT_INTERVAL_S = 30
+
     def __init__(self, depth=1, isBlack=True, name="", silent=False):
         self.board   = chess.Board()
         self.context = zmq.Context()
@@ -24,6 +27,9 @@ class ChessClient:
         self.name    = name
         self.silent  = silent
         self.find_server()
+
+        signal.setitimer(signal.ITIMER_REAL, 30, self.HEARTBEAT_INTERVAL_S)
+        signal.signal(signal.SIGALRM, self.send_heartbeat)
 
     ############################
     #   Networking functions   #
@@ -68,12 +74,17 @@ class ChessClient:
             return True
         elif event['event'] == zmq.EVENT_CLOSED:
             return False
-        
-        #elif event['event'] == zmq.EVENT_CONNECTION_DELAYED:
-        #    return False
-        #elif event['event'] == zmq.EVENT_CONNECTION_RETRIED:
-        #    return False
+        elif event['event'] == zmq.EVENT_CONNECTION_DELAYED:
+            return False
+        elif event['event'] == zmq.EVENT_CONNECTION_RETRIED:
+            return False
         return False
+
+
+    def send_heartbeat(self, signum, frame):
+        msg = json.dumps({"type": "<3"}).encode()
+        self.socket.send(msg)
+        print("sent <3")
 
             
     #######################
@@ -82,7 +93,6 @@ class ChessClient:
     def play_game(self):
         '''Main game play function'''
         move = ""
-
 
         if self.isBlack:
             # print empty board
@@ -116,6 +126,7 @@ class ChessClient:
                 print(self.board.unicode(borders=True,invert_color=True,empty_square=" ", orientation=not self.isBlack))
             
             # get next move from user
+            
             #if self.silent:
             #    move = input() #sys.stdin.readline().decode()
                 
@@ -164,6 +175,7 @@ class ChessClient:
             self.board.push(move)
             if not self.silent:
                 os.system('clear')
+            print("CPU move: ", move.uci()) 
 
 def usage(status):
 

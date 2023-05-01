@@ -8,11 +8,7 @@ import signal
 import sys
 import json
 import socket
-from threading import Thread
-
-# from the stack overflow thingy
-import random
-from multiprocessing import Pool, Process
+from threading import Lock
 
 # Globals
 NSERVER = "catalog.cse.nd.edu"
@@ -20,9 +16,18 @@ NPORT   = 9097
 
 # Classes 
 class ChessServer:
+    HEARTBEAT_LIVENESS = 3
+    HEARTBEAT_INTERVAL = 30000 # msecs
+    HEARTBEAT_EXPIRY = HEARTBEAT_INTERVAL * HEARTBEAT_LIVENESS
+    POLL_TIMEOUT = 30000
+
+    heartbeat_at = None
+
     def __init__(self, debug=False, name=""):
         self.debug   = debug
         self.name    = name
+
+        self.heartbeat_at = time.time() + 1e-3*self.HEARTBEAT_INTERVAL
 
         # create zmq context
         self.context = zmq.Context()
@@ -41,24 +46,28 @@ class ChessServer:
         signal.signal(signal.SIGALRM, self.update_nameserver)
 
         self.workers = dict()
+        self.waiting = []
         self.work_queue = []
 
-
-        self.best_move  = ''
-        self.best_score = float('-inf')
-        self.num_moves  = 0
-        self.move_count = 0
-
-
+        self.clients = dict()
+        
     def add_task(self, task):
+        '''
+        task: param string: task to be added to the work queue
+        wrapper function to add task
+        '''
         self.work_queue.append(task)
 
     def worker_req(self, worker_id, available=False):
+        '''
+        worker_id: param string: worker id that has the req
+        '''
         if worker_id in self.workers:
             # task not returned sadness
             task = self.workers[worker_id]['task']
             if task != '':
                 self.add_task(task)
+                print(task)
     
         self.add_worker(worker_id, available)
 
@@ -67,32 +76,63 @@ class ChessServer:
         # if dead, trash results, now alive again!
         if not self.workers[worker_id]['alive']:
             self.workers[worker_id]['alive'] = True
+            self.workers[worker_id]['task'] = ''
         else:
-            self.move_count += 1
+            self.clients[client_id]['received_moves'] += 1
             score = int(score)
-            if score > self.best_score:
-                self.best_move  = move
-                self.best_score = score
 
-            if self.move_count == self.num_moves:
+            if score > self.clients[client_id]['best_score']: 
+                self.clients[client_id]['best_move'] = move
+                self.clients[client_id]['best_score'] = score
+        
+            print(self.clients[client_id]['received_moves'], self.clients[client_id]['num_moves'])
+            if self.clients[client_id]['received_moves'] == self.clients[client_id]['num_moves']:
                 if self.debug:
-                    print(self.best_move, self.best_score)
-                msg = json.dumps({"move":self.best_move, "score":self.best_score}).encode()
+                    print(self.clients[client_id]['best_move'], self.clients[client_id]['best_score'])
+                msg = json.dumps({"move":self.clients[client_id]['best_move'], "score":self.clients[client_id]['best_score']}).encode()
                 self.client.send_multipart([client_id, client_id, msg])
 
         self.workers[worker_id]['available'] = False
 
         
 
-    def add_worker(self, worker_id, available=False, alive=True, task=''):
+    def add_worker(self, worker_id, available=False, alive=True, task='', expiry=0):
+        '''
+        worker_id:...... to be finished
+        '''
         self.workers[worker_id] = {
             'available': available,
             'alive': alive,
-            'task': task
+            'task': task,
+            'expiry': expiry
         }
 
+    def add_client(self, client_id, num_moves):
+        '''
+        client_id: param string: client id received from message
+        num_moves: param int: number of moves/tasks to be recollected
+        
+        adds client structure 
+            alive: bool: client connected or not
+            expiry: float: expire time for a worker to be considered dead
+            best_move: string: the current best move returned by a worker based on score
+            num_moves: int: number of moves/tasks to be recollected at that time
+            received_moves: int: num of moves currently received
+        '''
+
+        self.clients[client_id] = {
+            'alive': True,
+            'expiry': 0,
+            'best_move': '',
+            'best_score': float('-inf'),
+            'num_moves': num_moves,
+            'received_moves': 0
+        }
 
     def worker_die(self, worker_id):
+        '''
+        worker_id: param string: worker to be marked as dead
+        '''
         # check if there was work assigned
         task = self.workers[worker_id]['task']
 
@@ -120,19 +160,52 @@ class ChessServer:
             s.close()
             break
 
+    
+    def update_expiry(self, is_worker, ident):
+        if is_worker:
+            self.workers[ident]['expiry'] = time.time() + 1e-3*self.HEARTBEAT_EXPIRY
+            if ident in self.waiting:
+                self.waiting.remove(ident)
+            self.waiting.append(ident)
+        else:
+            self.clients[ident]['expiry'] = time.time() + 1e-3*self.HEARTBEAT_EXPIRY
+
+
+    def purge_workers(self):
+        while self.waiting:
+            w = self.waiting[0]
+            # workers in order of expiry
+            if self.workers[w]['expiry'] < time.time():
+                print("delete expired worker")
+                self.worker_die(w)
+                self.waiting.pop(0)
+            else:
+                break
+
+
+    def purge_clients(self):
+        for client, info in self.clients.items():
+            if info['alive'] and info['expiry'] < time.time():
+                print("delete expired client")
+                self.clients[client]['alive'] = False
+
 
     def run(self):
         # register sockets for the clients and the workers
         poller = zmq.Poller()
         poller.register(self.worker, zmq.POLLIN)
         poller.register(self.client, zmq.POLLIN)
-    
 
         # main loop
         while True:
             # get lists of readable sockets
-            print("anything")
+           # try:
             socks = dict(poller.poll())
+            if self.debug:
+                print(socks)
+            #except KeyboardInterrupt:
+            #    break
+
             # if WORKER has a message!
             if self.worker in socks and socks[self.worker] == zmq.POLLIN:
                 w_id, c_id, message = self.worker.recv_multipart()
@@ -146,13 +219,20 @@ class ChessServer:
                     self.worker_req(w_id, True)
                     if self.debug:
                         print("ya worker ready")
+                elif msg_type == "<3":
+                    if self.debug:
+                        print("<3")
+                    pass
 
                 # worker returned result    
                 else:
                     move  = message["move"]
                     score = message["score"]
                     self.returned_result(w_id, c_id, move, score)
-                        
+
+                # update expiry time
+                if w_id in self.workers:
+                    self.update_expiry(is_worker=True, ident=w_id)
 
             # if CLIENT has a message!
             if self.client in socks and socks[self.client] == zmq.POLLIN:
@@ -160,36 +240,47 @@ class ChessServer:
                 c_id, message = self.client.recv_multipart()
                 message       = json.loads(message.decode())
                 
-                if self.debug:
-                    print(message)
+                if message.get("type") == "<3":
+                    if self.debug:
+                        print("client <3")
+                    pass
+                else:
+                    if self.debug:
+                        print(message)
 
-                b     = message["board"]
-                depth = message["depth"]
+                    b     = message["board"]
+                    depth = message["depth"]
 
-                board = chess.Board(fen=b)
+                    board = chess.Board(fen=b)
+                    
+                    legal_moves = board.legal_moves
+                    num_moves = legal_moves.count()
+
+                    # split up possible moves and add to task queue
+                    for move in board.pseudo_legal_moves:
+                        if move in board.legal_moves:
+                            self.add_task((c_id, board, move.uci(), depth))
                 
-                # need to change for multi-client
-                self.move_count = 0
-                self.best_score = float('-inf')
-                legal_moves = board.legal_moves
-                self.num_moves = legal_moves.count()
-
-                # split up possible moves and add to task queue
-                for move in board.pseudo_legal_moves:
-                    if move in board.legal_moves:
-                        self.add_task((c_id, board, move.uci(), depth))
+                    self.add_client(c_id, num_moves=num_moves)
+                
+                if c_id in self.clients:
+                    self.update_expiry(is_worker=False, ident=c_id)
             
             # send tasks to workers
-            if len(self.work_queue) > 0:
-                for worker, info in self.workers.items():
-                    if info['available'] and info['alive']:
-                        client_id, board, move, depth = self.work_queue.pop()
-                        msg = json.dumps({"listOfMoves":[move], "board":board.fen(),"depth":depth}).encode()
-                        self.worker.send_multipart([bytes(worker), bytes(client_id), msg])
-                        
-                        # worker no longer available until 'ready' again
-                        self.workers[worker]['available'] = False
+            available_workers = [x for x in self.workers if self.workers[x]['available'] and self.workers[x]['alive']]
+            while len(self.work_queue) > 0 and len(available_workers) > 0:
+                client_id, board, move, depth = self.work_queue.pop() 
+                if self.clients[client_id]['alive']:       
+                    worker = available_workers.pop()
+                    msg = json.dumps({"listOfMoves":[move], "board":board.fen(),"depth":depth}).encode()
+                    self.worker.send_multipart([bytes(worker), bytes(client_id), msg])
                     
+                    # worker no longer available until 'ready' again
+                    self.workers[worker]['available'] = False
+          
+            self.purge_workers()
+            self.purge_clients()
+
 
 def usage(status):
     print(f"Usage: ./GREGServer.py [options]")
