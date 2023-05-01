@@ -54,6 +54,9 @@ class ChessServer:
         
 
     def add_task(self, task):
+        '''
+        task: param string: task to be added to the work queue
+        '''
         self.work_queue.append(task)
 
     def worker_req(self, worker_id, available=False):

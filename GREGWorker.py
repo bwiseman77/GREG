@@ -237,7 +237,6 @@ class ChessWorker:
                 #    print(a)
 
                 s = solve(moves, board, depth, self.pretty)
-                time.sleep(5)
 
                 # sending the work back to server
                 message = json.dumps({"type":"WorkerResult", "move":s[0], "score":s[1], "board":b, "depth":depth}).encode()
