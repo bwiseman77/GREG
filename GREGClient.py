@@ -84,7 +84,8 @@ class ChessClient:
     def send_heartbeat(self, signum, frame):
         msg = json.dumps({"type": "<3"}).encode()
         self.socket.send(msg)
-        print("sent <3")
+        if not self.silent:
+            print("sent <3")
 
             
     #######################
@@ -175,7 +176,6 @@ class ChessClient:
             self.board.push(move)
             if not self.silent:
                 os.system('clear')
-            print("CPU move: ", move.uci()) 
 
 def usage(status):
 

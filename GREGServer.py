@@ -87,9 +87,10 @@ class ChessServer:
         
             print(self.clients[client_id]['received_moves'], self.clients[client_id]['num_moves'])
             if self.clients[client_id]['received_moves'] == self.clients[client_id]['num_moves']:
-                if self.debug:
-                    print(self.clients[client_id]['best_move'], self.clients[client_id]['best_score'])
                 msg = json.dumps({"move":self.clients[client_id]['best_move'], "score":self.clients[client_id]['best_score']}).encode()
+                
+                
+                print(msg)
                 self.client.send_multipart([client_id, client_id, msg])
 
         self.workers[worker_id]['available'] = False
@@ -200,9 +201,10 @@ class ChessServer:
         while True:
             # get lists of readable sockets
            # try:
+            print(self.work_queue)
             socks = dict(poller.poll())
-            if self.debug:
-                print(socks)
+            #if self.debug:
+            #    print(socks)
             #except KeyboardInterrupt:
             #    break
 
@@ -268,11 +270,16 @@ class ChessServer:
             
             # send tasks to workers
             available_workers = [x for x in self.workers if self.workers[x]['available'] and self.workers[x]['alive']]
+            
+            if self.debug:
+                print("checking to send work")
             while len(self.work_queue) > 0 and len(available_workers) > 0:
                 client_id, board, move, depth = self.work_queue.pop() 
                 if self.clients[client_id]['alive']:       
                     worker = available_workers.pop()
                     msg = json.dumps({"listOfMoves":[move], "board":board.fen(),"depth":depth}).encode()
+                    if self.debug:
+                        print(msg)
                     self.worker.send_multipart([bytes(worker), bytes(client_id), msg])
                     
                     # worker no longer available until 'ready' again
