@@ -147,13 +147,16 @@ class ChessWorker:
             return False
         # if handshake didnt fail, return true
         if event['event'] == zmq.EVENT_HANDSHAKE_SUCCEEDED:
+            print(event["event"])
             return True
         elif event['event'] == zmq.EVENT_CLOSED:
+            print(event["event"])
             return False
-        elif event['event'] == zmq.EVENT_CONNECT_DELAYED:
-            return False
-        elif event['event'] == zmq.EVENT_CONNECT_RETRIED:
-            return False
+        #elif event['event'] == zmq.EVENT_CONNECT_DELAYED:
+        #    return False
+        #elif event['event'] == zmq.EVENT_CONNECT_RETRIED:
+        #    return False
+        print(event["event"])
         return False
         
     #######################

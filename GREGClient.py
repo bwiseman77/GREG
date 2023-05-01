@@ -68,10 +68,11 @@ class ChessClient:
             return True
         elif event['event'] == zmq.EVENT_CLOSED:
             return False
-        elif event['event'] == zmq.EVENT_CONNECTION_DELAYED:
-            return False
-        elif event['event'] == zmq.EVENT_CONNECTION_RETRIED:
-            return False
+        
+        #elif event['event'] == zmq.EVENT_CONNECTION_DELAYED:
+        #    return False
+        #elif event['event'] == zmq.EVENT_CONNECTION_RETRIED:
+        #    return False
         return False
 
             
@@ -80,6 +81,7 @@ class ChessClient:
     #######################
     def play_game(self):
         '''Main game play function'''
+        move = ""
 
 
         if self.isBlack:
@@ -97,26 +99,28 @@ class ChessClient:
             
             # convert move and push to board
             move = msg["move"]
-            print("CPU move: ", move)
             move = chess.Move.from_uci(move)
             self.board.push(move)
             
         while(True):
+            # check for end of game
+            if self.board.is_checkmate() or self.board.is_stalemate() or self.board.is_insufficient_material() or self.board.is_seventyfive_moves(): #` or self.board.is_fivefold_repetition():
+                print(f"game over! {self.board.outcome().result()}", flush=True)
+                exit(0)
+            
+            if move != "":
+                print("CPU move: ", move)
+
             # print board
             if not self.silent:
                 print(self.board.unicode(borders=True,invert_color=True,empty_square=" ", orientation=not self.isBlack))
             
-            # check for end of game
-            if self.board.is_checkmate() or self.board.is_stalemate() or self.board.is_insufficient_material():
-                print(f"game over! {self.board.outcome().result()}")
-                exit(0)
-
             # get next move from user
-            if self.silent:
-                move = input() #sys.stdin.readline().decode()
+            #if self.silent:
+            #    move = input() #sys.stdin.readline().decode()
                 
-            else:
-                move = input("Make your move (uci): \n")
+            #else:
+            move = input("Make your move (uci): \n")
 
             # q to quit game
             if move == "q":
@@ -160,7 +164,6 @@ class ChessClient:
             self.board.push(move)
             if not self.silent:
                 os.system('clear')
-            print("CPU move: ", move.uci()) 
 
 def usage(status):
 

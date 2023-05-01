@@ -131,6 +131,7 @@ class ChessServer:
         # main loop
         while True:
             # get lists of readable sockets
+            print("anything")
             socks = dict(poller.poll())
             # if WORKER has a message!
             if self.worker in socks and socks[self.worker] == zmq.POLLIN:
