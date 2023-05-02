@@ -50,6 +50,7 @@ class ChessServer:
         self.work_queue = []
 
         self.clients = dict()
+
         
     def add_task(self, task):
         '''
@@ -65,7 +66,6 @@ class ChessServer:
         if worker_id in self.workers:
             # task not returned sadness
             task = self.workers[worker_id]['task']
-            print('task !!', task)
             if task != '':
                 self.add_task(task)
                 if self.debug:
@@ -141,7 +141,6 @@ class ChessServer:
         worker_id: param string: worker to be marked as dead
         '''
         # check if there was work assigned
-        print("worker died ya", worker_id)
         task = self.workers[worker_id]['task']
 
         # redistribute work
@@ -181,11 +180,11 @@ class ChessServer:
 
     def purge_workers(self):
         while self.waiting:
-            w = self.waiting[0]
+            worker = self.waiting[0]
             # workers in order of expiry
-            if self.workers[w]['expiry'] < time.time():
-                print("delete expired worker")
-                self.worker_die(w)
+            if self.workers[worker]['expiry'] < time.time():
+                print("delete expired worker", worker)
+                self.worker_die(worker)
                 self.waiting.pop(0)
             else:
                 break
@@ -219,7 +218,6 @@ class ChessServer:
             # if WORKER has a message!
             if self.worker in socks and socks[self.worker] == zmq.POLLIN:
                 w_id, c_id, message = self.worker.recv_multipart()
-                print('worker id, client id, message', w_id, c_id, message)
                 message = json.loads(message)
                 if self.debug:
                     print(message)

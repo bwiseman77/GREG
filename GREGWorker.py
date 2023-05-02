@@ -117,6 +117,7 @@ class ChessWorker:
         self.pretty = pretty
         self.debug  = debug
         self.name   = name
+        self.connected = False
         self.find_server()
 
         # <3
@@ -140,9 +141,7 @@ class ChessWorker:
 
             # set up zmq context
             self.context = zmq.Context()
-            self.socket = self.context.socket(zmq.DEALER)
-            self.monitor = self.socket.get_monitor_socket(zmq.EVENT_HANDSHAKE_SUCCEEDED|zmq.EVENT_DISCONNECTED)
-
+            
             # look for available server
             for item in js:
                 if "type" in item and item["type"] == f"{self.name}chessWorker":
@@ -151,8 +150,14 @@ class ChessWorker:
                     self.port = item["port"]
                     self.host = item["name"]
                     try:
+                        self.socket = self.context.socket(zmq.DEALER)
+                        self.monitor = self.socket.get_monitor_socket(zmq.EVENT_CLOSED|zmq.EVENT_HANDSHAKE_SUCCEEDED|zmq.EVENT_DISCONNECTED)
                         if self.connect():
+                            self.connected = True
                             return
+                        else:
+                            self.monitor.close()
+                            self.socket.close()
                     except zmq.ZMQError as exc:
                         print("exc", exc)
           
@@ -162,29 +167,27 @@ class ChessWorker:
         # set up socket
         if self.pretty:
             print(f"connecting to {self.host}:{self.port}")
+        
         self.socket.connect(f"tcp://{self.host}:{self.port}")
 
         # zmq monitor magic
         try:
             event = zmq.utils.monitor.recv_monitor_message(self.monitor) 
-            print(event['event'])
         except zmq.ZMQError as e:
             print("oops",e)
             return False
         # if handshake didnt fail, return true
         if event['event'] == zmq.EVENT_HANDSHAKE_SUCCEEDED:
             return True
-        elif event['event'] == zmq.EVENT_DISCONNECTED:
+        elif event['event'] == zmq.EVENT_DISCONNECTED or event['event'] == zmq.EVENT_CLOSED:
+            self.monitor.close()
+            self.socket.close()
             return False
-        #elif event['event'] == zmq.EVENT_CONNECT_DELAYED:
-        #    return False
-        #elif event['event'] == zmq.EVENT_CONNECT_RETRIED:
-        #    return False
         return False
 
 
     def send_heartbeat(self, signum, frame):
-        if self.heartbeat_at < time.time():
+        if self.connected and self.heartbeat_at < time.time():
             msg = json.dumps({"type": "<3"}).encode()
             self.socket.send_multipart([b"", msg])
             if self.debug:
@@ -225,15 +228,18 @@ class ChessWorker:
             if self.monitor in socks and socks[self.monitor] == zmq.POLLIN:
                 event = zmq.utils.monitor.recv_monitor_message(self.monitor) 
                 # on a disconnect, find server again and get jobs again
-                print(event)
-                if event['event'] == zmq.EVENT_DISCONNECTED:
+                if event['event'] == zmq.EVENT_CLOSED:
+                    print("omg disconnected!")
+                    self.connected = False
+                    self.monitor.close()
+                    self.socket.close()
+                    self.context.destroy()
                     self.find_server()
-                    self.get_jobs()
+                    return
 
             # if socket has message with work
             if self.socket in socks and socks[self.socket] == zmq.POLLIN:
                 client_id, message = self.socket.recv_multipart()
-                print('client id, message', client_id, message)
                 message       = json.loads(message)
 
                 if self.debug:
@@ -292,8 +298,9 @@ def main():
 
     # start doing work
     worker = ChessWorker(pretty, debug, name)
-    worker.get_jobs()
-
+    while True:
+        worker.get_jobs()
+    
     Engine.close()
 
 if __name__ == "__main__":

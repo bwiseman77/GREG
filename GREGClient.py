@@ -26,10 +26,13 @@ class ChessClient:
         self.depth   = depth
         self.name    = name
         self.silent  = silent
+        self.connected = False
+        self.heartbeat_at = 0
         self.find_server()
 
         signal.setitimer(signal.ITIMER_REAL, 30, self.HEARTBEAT_INTERVAL_S)
         signal.signal(signal.SIGALRM, self.send_heartbeat)
+
 
     ############################
     #   Networking functions   #
@@ -42,8 +45,7 @@ class ChessClient:
             js   = json.loads(conn.getresponse().read())
             
             self.context = zmq.Context()
-            self.socket = self.context.socket(zmq.DEALER)
-            self.monitor = self.socket.get_monitor_socket(zmq.EVENT_CLOSED|zmq.EVENT_HANDSHAKE_SUCCEEDED|zmq.EVENT_DISCONNECTED)
+           
 
             # look for available server
             for item in js:
@@ -54,8 +56,15 @@ class ChessClient:
                     self.host = item["name"]
 
                     try:
+                        self.socket = self.context.socket(zmq.DEALER)
+                        self.monitor = self.socket.get_monitor_socket(zmq.EVENT_CLOSED|zmq.EVENT_HANDSHAKE_SUCCEEDED|zmq.EVENT_DISCONNECTED)
                         if self.connect():
+                            self.connected = True
                             return
+                        else:
+                            self.monitor.close()
+                            self.socket.close()
+
                     except zmq.ZMQError as exc:
                         if not self.silent:
                             print(exc)
@@ -74,18 +83,19 @@ class ChessClient:
             return True
         elif event['event'] == zmq.EVENT_CLOSED:
             return False
-        elif event['event'] == zmq.EVENT_CONNECTION_DELAYED:
-            return False
-        elif event['event'] == zmq.EVENT_CONNECTION_RETRIED:
-            return False
         return False
 
 
     def send_heartbeat(self, signum, frame):
-        msg = json.dumps({"type": "<3"}).encode()
-        self.socket.send(msg)
-        if not self.silent:
-            print("sent <3")
+        if self.connected and self.heartbeat_at < time.time():
+            msg = json.dumps({"type": "<3"}).encode()
+            self.socket.send(msg)
+            if not self.silent:
+                print("sent <3")
+            self.update_expiry()
+
+    def update_expiry(self):
+        self.heartbeat_at = time.time() + 1e-3*self.HEARTBEAT_INTERVAL
 
             
     #######################
@@ -95,6 +105,10 @@ class ChessClient:
         '''Main game play function'''
         move = ""
 
+        poller = zmq.Poller()
+        poller.register(self.socket, zmq.POLLIN)
+        poller.register(self.monitor, zmq.POLLIN)
+
         if self.isBlack:
             # print empty board
             if not self.silent:
@@ -103,6 +117,7 @@ class ChessClient:
             # ask for move
             b = self.board.fen()
             self.socket.send(bytes(json.dumps({"board":b, "depth":self.depth}), "utf-8"))
+            self.update_expiry()
             
             # recv move
             id_, msg = self.socket.recv_multipart()
@@ -113,69 +128,97 @@ class ChessClient:
             move = chess.Move.from_uci(move)
             self.board.push(move)
             
+        new_move = True
         while(True):
-            # check for end of game
-            if self.board.is_checkmate() or self.board.is_stalemate() or self.board.is_insufficient_material() or self.board.is_seventyfive_moves(): #` or self.board.is_fivefold_repetition():
-                print(f"game over! {self.board.outcome().result()}", flush=True)
-                exit(0)
-            
-            if move != "":
-                print("CPU move: ", move)
+            if new_move:
+                try_send = True
 
-            # print board
-            if not self.silent:
-                print(self.board.unicode(borders=True,invert_color=True,empty_square=" ", orientation=not self.isBlack))
-            
-            # get next move from user
-            
-            #if self.silent:
-            #    move = input() #sys.stdin.readline().decode()
+                # check for end of game
+                if self.board.is_checkmate() or self.board.is_stalemate() or self.board.is_insufficient_material() or self.board.is_seventyfive_moves(): #` or self.board.is_fivefold_repetition():
+                    print(f"game over! {self.board.outcome().result()}", flush=True)
+                    exit(0)
                 
-            #else:
-            move = input("Make your move (uci): \n")
+                if move != "":
+                    print("CPU move: ", move)
 
-            # q to quit game
-            if move == "q":
-                print("Ending Game")
-                exit(0)
-            
-            # try convert move, if invalid ask again (needs to be uci)
-            try:
-                move = chess.Move.from_uci(move)
-            except:
-                print("please make a valid move")
-                continue
-
-            # if not a legal move, retry
-            if move not in self.board.legal_moves:
-                print("please make a valid move")
-                continue
+                # print board
+                if not self.silent:
+                    print(self.board.unicode(borders=True,invert_color=True,empty_square=" ", orientation=not self.isBlack))
                 
-            # add the move
-            self.board.push(move)
+                # get next move from user
+                
+                #if self.silent:
+                #    move = input() #sys.stdin.readline().decode()
+                    
+                #else:
+                move = input("Make your move (uci): \n")
 
-            # print board for user
-            if not self.silent:
-                os.system('clear')
-                print(self.board.unicode(borders=True,invert_color=True,empty_square=" ", orientation= not self.isBlack))
+                # q to quit game
+                if move == "q":
+                    print("Ending Game")
+                    exit(0)
+                
+                # try convert move, if invalid ask again (needs to be uci)
+                try:
+                    move = chess.Move.from_uci(move)
+                except:
+                    print("please make a valid move")
+                    continue
 
-            
-            
-            # send the message
-            b = self.board.fen()
-            self.socket.send(bytes(json.dumps({"board":b, "depth":self.depth}), "utf-8"))
+                # if not a legal move, retry
+                if move not in self.board.legal_moves:
+                    print("please make a valid move")
+                    continue
+                    
+                # add the move
+                self.board.push(move)
+
+                # print board for user
+                if not self.silent:
+                    os.system('clear')
+                    print(self.board.unicode(borders=True,invert_color=True,empty_square=" ", orientation= not self.isBlack))
+
+            if try_send:
+
+                # send the message
+                b = self.board.fen()
+                self.socket.send(bytes(json.dumps({"board":b, "depth":self.depth}), "utf-8"))
+                self.update_expiry()
+
+            socks = dict(poller.poll())
+
+            if self.monitor in socks and socks[self.monitor] == zmq.POLLIN:
+                new_move = False
+                
+                event = zmq.utils.monitor.recv_monitor_message(self.monitor)
+                if event['event'] == zmq.EVENT_CLOSED or event['event'] == zmq.EVENT_DISCONNECTED:
+                    try_send = True
+                    self.connected = False
+                    self.monitor.close()
+                    self.socket.close()
+                    self.find_server()
+                    poller = zmq.Poller()
+                    poller.register(self.monitor, zmq.POLLIN)
+                    poller.register(self.socket, zmq.POLLIN)
+                    continue
+                else:
+                    try_send = False
 
             # recv move
-            id_, msg = self.socket.recv_multipart()
-            msg      = json.loads(msg)
-            
-            
-            # convert move and push to board
-            move = msg["move"]
-            move = chess.Move.from_uci(move)
-            self.board.push(move)
-            if not self.silent:
-                os.system('clear')
+            if self.socket in socks and socks[self.socket] == zmq.POLLIN:
+
+                id_, msg = self.socket.recv_multipart()
+                msg      = json.loads(msg)
+                
+                
+                # convert move and push to board
+                move = msg["move"]
+                move = chess.Move.from_uci(move)
+                self.board.push(move)
+                if not self.silent:
+                    os.system('clear')
+                new_move = True
+                 
 
 def usage(status):
 
