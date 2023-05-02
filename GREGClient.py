@@ -16,8 +16,8 @@ UPDATE_DELAY = 60
 
 # Classes
 class ChessClient:
-    HEARTBEAT_INTERVAL = 30000
-    HEARTBEAT_INTERVAL_S = 30
+    HEARTBEAT_INTERVAL = 5000
+    HEARTBEAT_INTERVAL_S = 5
 
     def __init__(self, depth=1, isBlack=True, name="", silent=False):
         self.board   = chess.Board()

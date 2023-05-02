@@ -17,9 +17,9 @@ NPORT   = 9097
 # Classes 
 class ChessServer:
     HEARTBEAT_LIVENESS = 3
-    HEARTBEAT_INTERVAL = 30000 # msecs
+    HEARTBEAT_INTERVAL = 5000 # msecs
     HEARTBEAT_EXPIRY = HEARTBEAT_INTERVAL * HEARTBEAT_LIVENESS
-    POLL_TIMEOUT = 30000
+    POLL_TIMEOUT = 5000
 
     heartbeat_at = None
 
@@ -58,19 +58,20 @@ class ChessServer:
         '''
         self.work_queue.append(task)
 
-    def worker_req(self, worker_id, available=False):
+    def worker_req(self, worker_id):
         '''
         worker_id: param string: worker id that has the req
         '''
         if worker_id in self.workers:
             # task not returned sadness
             task = self.workers[worker_id]['task']
+            print('task !!', task)
             if task != '':
                 self.add_task(task)
                 if self.debug:
                     print(task)
     
-        self.add_worker(worker_id, available)
+        self.add_worker(worker_id, available=True)
 
     
     def returned_result(self, worker_id, client_id, move, score):
@@ -80,6 +81,7 @@ class ChessServer:
             self.workers[worker_id]['task'] = ''
         else:
             self.clients[client_id]['received_moves'] += 1
+            self.workers[worker_id]['task'] = ''
             if score != float('-inf'):
                 score = int(score)
 
@@ -111,6 +113,7 @@ class ChessServer:
             'expiry': expiry
         }
 
+
     def add_client(self, client_id, num_moves):
         '''
         client_id: param string: client id received from message
@@ -138,6 +141,7 @@ class ChessServer:
         worker_id: param string: worker to be marked as dead
         '''
         # check if there was work assigned
+        print("worker died ya", worker_id)
         task = self.workers[worker_id]['task']
 
         # redistribute work
@@ -190,7 +194,7 @@ class ChessServer:
     def purge_clients(self):
         for client, info in self.clients.items():
             if info['alive'] and info['expiry'] < time.time():
-                print("delete expired client")
+                print("delete expired client", client)
                 self.clients[client]['alive'] = False
 
 
@@ -215,6 +219,7 @@ class ChessServer:
             # if WORKER has a message!
             if self.worker in socks and socks[self.worker] == zmq.POLLIN:
                 w_id, c_id, message = self.worker.recv_multipart()
+                print('worker id, client id, message', w_id, c_id, message)
                 message = json.loads(message)
                 if self.debug:
                     print(message)
@@ -222,7 +227,7 @@ class ChessServer:
 
                 # worker ready
                 if msg_type == "WorkerRequest":
-                    self.worker_req(w_id, True)
+                    self.worker_req(w_id)
                     if self.debug:
                         print("ya worker ready")
                 elif msg_type == "<3":
@@ -284,6 +289,7 @@ class ChessServer:
                     msg = json.dumps({"listOfMoves":[move], "board":board.fen(),"depth":depth}).encode()
                     if self.debug:
                         print(msg)
+                    self.workers[worker]['task'] = (client_id, board, move, depth)
                     self.worker.send_multipart([bytes(worker), bytes(client_id), msg])
                     
                     # worker no longer available until 'ready' again

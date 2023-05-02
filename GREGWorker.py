@@ -108,8 +108,8 @@ def score_move(move, board, depth, pretty=False, engine=None):
 
 # Classes 
 class ChessWorker:
-    HEARTBEAT_INTERVAL = 30000
-    HEARTBEAT_INTERVAL_S = 30
+    HEARTBEAT_INTERVAL = 5000
+    HEARTBEAT_INTERVAL_S = 5
 
     def __init__(self, pretty=False, debug=False, name=''):
         global Engine
@@ -120,7 +120,7 @@ class ChessWorker:
         self.find_server()
 
         # <3
-        signal.setitimer(signal.ITIMER_REAL, 30, self.HEARTBEAT_INTERVAL_S)
+        signal.setitimer(signal.ITIMER_REAL, self.HEARTBEAT_INTERVAL_S, self.HEARTBEAT_INTERVAL_S)
         signal.signal(signal.SIGALRM, self.send_heartbeat) 
         
         self.heartbeat_at = 0
@@ -141,7 +141,7 @@ class ChessWorker:
             # set up zmq context
             self.context = zmq.Context()
             self.socket = self.context.socket(zmq.DEALER)
-            self.monitor = self.socket.get_monitor_socket(zmq.EVENT_CLOSED|zmq.EVENT_HANDSHAKE_SUCCEEDED|zmq.EVENT_DISCONNECTED)
+            self.monitor = self.socket.get_monitor_socket(zmq.EVENT_HANDSHAKE_SUCCEEDED|zmq.EVENT_DISCONNECTED)
 
             # look for available server
             for item in js:
@@ -167,21 +167,19 @@ class ChessWorker:
         # zmq monitor magic
         try:
             event = zmq.utils.monitor.recv_monitor_message(self.monitor) 
+            print(event['event'])
         except zmq.ZMQError as e:
-            print(e)
+            print("oops",e)
             return False
         # if handshake didnt fail, return true
         if event['event'] == zmq.EVENT_HANDSHAKE_SUCCEEDED:
-            print(event["event"])
             return True
-        elif event['event'] == zmq.EVENT_CLOSED:
-            print(event["event"])
+        elif event['event'] == zmq.EVENT_DISCONNECTED:
             return False
         #elif event['event'] == zmq.EVENT_CONNECT_DELAYED:
         #    return False
         #elif event['event'] == zmq.EVENT_CONNECT_RETRIED:
         #    return False
-        print(event["event"])
         return False
 
 
@@ -234,7 +232,8 @@ class ChessWorker:
 
             # if socket has message with work
             if self.socket in socks and socks[self.socket] == zmq.POLLIN:
-                c_id, message = self.socket.recv_multipart()
+                client_id, message = self.socket.recv_multipart()
+                print('client id, message', client_id, message)
                 message       = json.loads(message)
 
                 if self.debug:
@@ -257,7 +256,7 @@ class ChessWorker:
 
                 # sending the work back to server
                 message = json.dumps({"type":"WorkerResult", "move":s[0], "score":s[1], "board":b, "depth":depth}).encode()
-                self.socket.send_multipart([c_id, message])
+                self.socket.send_multipart([client_id, message])
 
 def usage(status):
 
