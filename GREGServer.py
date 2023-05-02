@@ -67,7 +67,8 @@ class ChessServer:
             task = self.workers[worker_id]['task']
             if task != '':
                 self.add_task(task)
-                print(task)
+                if self.debug:
+                    print(task)
     
         self.add_worker(worker_id, available)
 
@@ -79,18 +80,20 @@ class ChessServer:
             self.workers[worker_id]['task'] = ''
         else:
             self.clients[client_id]['received_moves'] += 1
-            score = int(score)
+            if score != float('-inf'):
+                score = int(score)
 
-            if score > self.clients[client_id]['best_score']: 
-                self.clients[client_id]['best_move'] = move
-                self.clients[client_id]['best_score'] = score
+                if score > self.clients[client_id]['best_score']: 
+                    self.clients[client_id]['best_move'] = move
+                    self.clients[client_id]['best_score'] = score
         
-            print(self.clients[client_id]['received_moves'], self.clients[client_id]['num_moves'])
+            print("client moves", client_id, self.clients[client_id]['received_moves'], self.clients[client_id]['num_moves'])
             if self.clients[client_id]['received_moves'] == self.clients[client_id]['num_moves']:
                 msg = json.dumps({"move":self.clients[client_id]['best_move'], "score":self.clients[client_id]['best_score']}).encode()
                 
                 
-                print(msg)
+                if self.debug:
+                    print(msg)
                 self.client.send_multipart([client_id, client_id, msg])
 
         self.workers[worker_id]['available'] = False
@@ -201,7 +204,8 @@ class ChessServer:
         while True:
             # get lists of readable sockets
            # try:
-            print(self.work_queue)
+            if self.debug:
+                print(self.work_queue)
             socks = dict(poller.poll())
             #if self.debug:
             #    print(socks)
@@ -248,7 +252,7 @@ class ChessServer:
                     pass
                 else:
                     if self.debug:
-                        print(message)
+                        print(c_id, message)
 
                     b     = message["board"]
                     depth = message["depth"]

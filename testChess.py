@@ -39,7 +39,6 @@ def spawn(num, port, host):
 def kill(port, host):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.sendto(json.dumps({"req":"kill"}).encode(), (host, port))
-    time.sleep(2)
 
 def get_move(proc, turn, debug):
     '''Gets move from a process'''
@@ -118,7 +117,9 @@ def play_game(black_depth=1, white_depth=1, name="", debug=False):
 
     # collect
     white.kill()
+    white.wait()
     black.kill()
+    black.wait()
 
     return
 

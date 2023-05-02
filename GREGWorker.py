@@ -48,7 +48,9 @@ def solve(listOfMoves, board, depth, pretty=False, engine=None):
         score = score_move(move, board, depth, pretty)
         if score > bestMove[1]:
             bestMove = (move, score)
-
+    if bestMove[0] == None:
+        print("ERROR")
+        return (None, -1000000)
     return bestMove
 
 def score_move(move, board, depth, pretty=False, engine=None):
@@ -82,12 +84,23 @@ def score_move(move, board, depth, pretty=False, engine=None):
     # non base case
     else:
         # push whites best move
-        opp_move = chess.Move.from_uci(solve([move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves], board, 1, pretty)[0])
+        opp_moves = [move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves]
+        if opp_moves == []:
+            board.pop()
+            return 10000000    
+        opp_move = chess.Move.from_uci(solve(opp_moves, board, 1, pretty)[0])
+
         board.push(opp_move)
           
         # for every move in new board, see what is best
-        score = solve([move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves], board, depth-1, pretty)
+        best_moves = [move.uci() for move in board.pseudo_legal_moves if move in board.legal_moves]
+        if best_moves == []:
+            board.pop()
+            board.pop()
+            return -10000000
 
+        score = solve(best_moves, board, depth-1, pretty)
+        
         # pop from board cuz passed by ref???
         board.pop()
         board.pop()
