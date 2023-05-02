@@ -31,11 +31,13 @@ def main():
     argind      = 1
 
     # parse ags
-    while len(argv) > agrind:
+    while len(sys.argv) > argind:
         arg = sys.argv[argind]
         if arg == "-p":
+            argind += 1
             port = int(sys.argv[argind])
         elif arg == "-n":
+            argind += 1
             name = sys.argv[argind]
         elif arg == "-h":
             usage(0)

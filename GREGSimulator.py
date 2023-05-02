@@ -21,7 +21,7 @@ NumMoves = 0
 
 def usage(status):
     '''Prints Usage message'''
-    print(f"Usage: ./testChess.py [options]")
+    print(f"Usage: ./GREGSimulator.py [options]")
     print(f"    -b DEPTH    Depth of searches for black (depth = 1)")
     print(f"    -w DEPTH    Depth of searches for white (depth = 1)")
     print(f"    -n NAME     Add unique name")
