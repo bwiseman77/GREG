@@ -33,10 +33,12 @@ def usage(status):
     exit(status)
 
 def spawn(num, port, host):
+    '''Asks Worker Manager to spawn Workers'''
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.sendto(json.dumps({"req":"spawn","numWorkers":f"{num}"}).encode(), (host, port))
 
 def kill(port, host):
+    '''Asks Worker Manager to kill Workers'''
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.sendto(json.dumps({"req":"kill"}).encode(), (host, port))
 
@@ -69,6 +71,7 @@ def get_move(proc, turn, debug):
     return move[2] + "\n"
 
 def make_move(proc, move, turn, debug):
+    '''Makes a move to a process'''
     global GameOver
 
     # if game is over, dont do anything
@@ -98,8 +101,8 @@ def play_game(black_depth=1, white_depth=1, name="", debug=False):
     '''
     
     # start players
-    black = subprocess.Popen(["python", "./GREGClient.py", "-d", black_depth, "-n", name, "-b", "-s"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-    white = subprocess.Popen(["python", "./GREGClient.py", "-d", white_depth, "-n", name, "-s"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    black = subprocess.Popen(["python", "./GREGClient.py", "-d", white_depth, "-n", name, "-b", "-s"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    white = subprocess.Popen(["python", "./GREGClient.py", "-d", black_depth, "-n", name, "-s"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
     # play game
     while not GameOver:
@@ -220,9 +223,6 @@ def main():
     print(f"All games:")
     for game in games:
         print(f"{game.split()[2]}")
-
-
-    
 
 if __name__ == "__main__":
     main()
