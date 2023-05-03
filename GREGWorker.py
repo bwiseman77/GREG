@@ -13,7 +13,6 @@ import signal
 
 # Globals
 NSERVER = "catalog.cse.nd.edu:9097"
-Engine  = chess.engine.SimpleEngine.popen_uci("./bin/stockfish")
 
 # Functions
 def usage(status):
@@ -307,6 +306,7 @@ def main():
     '''
     Main execution
     '''
+    global Engine
     # options
     pretty = False
     debug  = False
@@ -329,6 +329,9 @@ def main():
             usage(1)
 
         argind += 1
+
+    
+    Engine  = chess.engine.SimpleEngine.popen_uci("./bin/stockfish")
 
     # start doing work
     worker = ChessWorker(pretty, debug, name)

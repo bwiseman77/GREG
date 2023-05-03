@@ -128,7 +128,6 @@ class ChessClient:
         if self.connected and self.heartbeat_at < time.time():
             msg = json.dumps({"type": "<3"}).encode()
             self.socket.send(msg)
-            self.printg("sent <3")
             self.update_expiry()
 
     def update_expiry(self):
