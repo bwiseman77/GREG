@@ -16,7 +16,7 @@ def usage(status):
     '''Usage Function'''
     print(f"Usage: python WorkerManager.py [options]")
     print(f"    -p PORT    Port to listen on")
-    print(f"    -n NAME    Unique name")
+    print(f"    -n NAME    Unique name (default=test)")
     print(f"    -h         Help")
     exit(status)
 

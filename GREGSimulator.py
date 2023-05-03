@@ -26,8 +26,8 @@ def usage(status):
     print(f"    -w DEPTH    Depth of searches for white (depth = 1)")
     print(f"    -n NAME     Add unique name")
     print(f"    -g GAMES    Number of Games to play")
-    print(f"    -c COUNT    Number of workers")
-    print(f"    -s H P      Server Host and Port")
+    print(f"    -c COUNT    Number of workers (Only for use with WorkerManager)")
+    print(f"    -s H P      Server Host and Port (Only for use with WorkerManager)")
     print(f"    -d          Debug")
     print(f"    -h          help")
     exit(status)
@@ -215,12 +215,14 @@ def main():
     kill(port, host)
 
     # print data
-    print(f"Workers   : {num_workers}")
-    print(f"White Wins: {white_wins}")
-    print(f"Black Wins: {black_wins}")
-    print(f"Draws     : {draws}")
-    print(f"Moves/sec : {sum(moves)/sum(times) * 1000000000}")
-    print(f"All games:")
+    print(f"Workers    : {num_workers}")
+    print(f"White depth: {white_depth}")
+    print(f"White Wins : {white_wins}")
+    print(f"Black depth: {black_depth}")
+    print(f"Black Wins : {black_wins}")
+    print(f"Draws      : {draws}")
+    print(f"Moves/sec  : {sum(moves)/sum(times) * 1000000000}")
+    print(f"All games :")
     for game in games:
         print(f"{game.split()[2]}")
 

@@ -1,0 +1,73 @@
+Workers    : 20
+White depth: 1
+White Wins : 4
+Black depth: 1
+Black Wins : 1
+Draws      : 0
+Moves/sec  : 24.242009893164578
+All games :
+0-1
+1-0
+1-0
+1-0
+1-0
+Workers    : 20
+White depth: 1
+White Wins : 2
+Black depth: 1
+Black Wins : 0
+Draws      : 0
+Moves/sec  : 28.124863484038364
+All games :
+1-0
+1-0
+Workers    : 20
+White depth: 1
+White Wins : 0
+Black depth: 1
+Black Wins : 1
+Draws      : 1
+Moves/sec  : 20.96764916567351
+All games :
+0-1
+1/2-1/2
+Workers    : 20
+White depth: 1
+White Wins : 1
+Black depth: 1
+Black Wins : 0
+Draws      : 1
+Moves/sec  : 27.536937668663086
+All games :
+1/2-1/2
+1-0
+Workers    : 20
+White depth: 1
+White Wins : 0
+Black depth: 1
+Black Wins : 0
+Draws      : 2
+Moves/sec  : 10.884646327252002
+All games :
+1/2-1/2
+1/2-1/2
+Workers    : 20
+White depth: 1
+White Wins : 0
+Black depth: 1
+Black Wins : 1
+Draws      : 1
+Moves/sec  : 17.58849693050554
+All games :
+1/2-1/2
+0-1
+Workers    : 20
+White depth: 1
+White Wins : 0
+Black depth: 1
+Black Wins : 1
+Draws      : 1
+Moves/sec  : 10.817290600785325
+All games :
+1/2-1/2
+0-1

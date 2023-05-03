@@ -10,15 +10,29 @@ import signal
 import os
 
 # Globals
-
 NSERVER      = "catalog.cse.nd.edu:9097"
 UPDATE_DELAY = 60
+
+# Functions
+def usage(status):
+
+    print(f"Usage: ./GREGClient.py [options]")
+    print(f"    -d DEPTH    Depth of searches (depth = 1)")
+    print(f"    -n NAME     Add unique name")
+    print(f"    -b          Play as black instead of white")
+    print(f"    -h          help")
+    print(f"    -s          silent mode")
+
+    exit(status)
 
 # Classes
 class ChessClient:
     HEARTBEAT_INTERVAL = 5000
     HEARTBEAT_INTERVAL_S = 5
 
+    #########################
+    #    Class Functions    #
+    #########################
     def __init__(self, depth=1, isBlack=True, name="", silent=False):
         self.board   = chess.Board()
         self.context = zmq.Context()
@@ -30,15 +44,32 @@ class ChessClient:
         self.heartbeat_at = 0
         self.find_server()
 
-        signal.setitimer(signal.ITIMER_REAL, 30, self.HEARTBEAT_INTERVAL_S)
+        signal.setitimer(signal.ITIMER_REAL, self.HEARTBEAT_INTERVAL_S, self.HEARTBEAT_INTERVAL_S)
         signal.signal(signal.SIGALRM, self.send_heartbeat)
+    
+    def printg(self, msg, alwaysPrint=False):
+        '''
+        param:  msg string:         message to print
+        param:  alwaysPrint bool:   if message should always print
+        return: None
+        Wrapper for print statements for debugging
+        '''
+        if alwaysPrint:
+            print(msg)
+        else:
+            if not self.silent:
+                print(msg)
 
 
     ############################
     #   Networking functions   #
     ############################
     def find_server(self):
-        '''Locate chess server from name server'''
+        '''
+        param:  None
+        return: None
+        Locate chess service and connect to it
+        '''
         while True:
             conn = http.client.HTTPConnection(NSERVER)
             conn.request("GET", "/query.json")
@@ -50,8 +81,7 @@ class ChessClient:
             # look for available server
             for item in js:
                 if "type" in item and item["type"] == f"{self.name}chessClient" and int(item["lastheardfrom"]) + UPDATE_DELAY > time.time():
-                    if not self.silent:
-                        print(item)
+                    self.printg(item)
                     self.port = item["port"]
                     self.host = item["name"]
 
@@ -66,18 +96,20 @@ class ChessClient:
                             self.socket.close()
 
                     except zmq.ZMQError as exc:
-                        if not self.silent:
-                            print(exc)
+                        self.printg(exc)
                     
     def connect(self):
-        '''Connect to chess server, and checks to make handshake was successful'''
+        '''
+        param:  None
+        return: True if successful and False otherwise
+        Connect to a Server using ZMQ
+        '''
         self.socket.connect(f"tcp://{self.host}:{self.port}")
         
         try:
             event = zmq.utils.monitor.recv_monitor_message(self.monitor)
         except zmq.ZMQError as e:
-            if not self.silent:
-                print(e)
+            self.printg(e)
             return False
         if event['event'] == zmq.EVENT_HANDSHAKE_SUCCEEDED:
             return True
@@ -87,14 +119,24 @@ class ChessClient:
 
 
     def send_heartbeat(self, signum, frame):
+        '''
+        param:  signum Signal
+        param:  frame Stackframe
+        return: None
+        Sends heartbeat to server
+        '''
         if self.connected and self.heartbeat_at < time.time():
             msg = json.dumps({"type": "<3"}).encode()
             self.socket.send(msg)
-            if not self.silent:
-                print("sent <3")
+            self.printg("sent <3")
             self.update_expiry()
 
     def update_expiry(self):
+        '''
+        param:  None
+        return: None
+        Updates heartbeat time
+        '''
         self.heartbeat_at = time.time() + 1e-3*self.HEARTBEAT_INTERVAL
 
             
@@ -102,7 +144,11 @@ class ChessClient:
     #   Chess Functions   #
     #######################
     def play_game(self):
-        '''Main game play function'''
+        '''
+        param:  None
+        return: None
+        Main game play function
+        '''
         move = ""
 
         poller = zmq.Poller()
@@ -111,8 +157,7 @@ class ChessClient:
 
         if self.isBlack:
             # print empty board
-            if not self.silent:
-                print(self.board.unicode(borders=True,invert_color=True,empty_square=" ", orientation=not self.isBlack))
+            self.printg(self.board.unicode(borders=True,invert_color=True,empty_square=" ", orientation=not self.isBlack))
             
             # ask for move
             b = self.board.fen()
@@ -139,35 +184,29 @@ class ChessClient:
                     exit(0)
                 
                 if move != "":
-                    print("CPU move: ", move)
+                    self.printg(f"CPU move: {move}", True)
 
                 # print board
-                if not self.silent:
-                    print(self.board.unicode(borders=True,invert_color=True,empty_square=" ", orientation=not self.isBlack))
+                self.printg(self.board.unicode(borders=True,invert_color=True,empty_square=" ", orientation=not self.isBlack))
                 
-                # get next move from user
-                
-                #if self.silent:
-                #    move = input() #sys.stdin.readline().decode()
-                    
-                #else:
+                # get next move from user                    
                 move = input("Make your move (uci): \n")
 
                 # q to quit game
                 if move == "q":
-                    print("Ending Game")
+                    self.printg("Ending Game", True)
                     exit(0)
                 
                 # try convert move, if invalid ask again (needs to be uci)
                 try:
                     move = chess.Move.from_uci(move)
                 except:
-                    print("please make a valid move")
+                    self.printf("please make a valid move", True)
                     continue
 
                 # if not a legal move, retry
                 if move not in self.board.legal_moves:
-                    print("please make a valid move")
+                    self.printg("please make a valid move", True)
                     continue
                     
                 # add the move
@@ -219,17 +258,6 @@ class ChessClient:
                     os.system('clear')
                 new_move = True
                  
-
-def usage(status):
-
-    print(f"Usage: ./GREGClient.py [options]")
-    print(f"    -d DEPTH    Depth of searches (depth = 1)")
-    print(f"    -n NAME     Add unique name")
-    print(f"    -b          Play as black instead of white")
-    print(f"    -h          help")
-    print(f"    -s          silent mode")
-
-    exit(status)
 
 # Main Execution
 def main():
